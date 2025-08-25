@@ -1,6 +1,7 @@
 from datetime import date, datetime
 import io
 import zipfile
+from pathlib import Path
 
 import streamlit as st
 
@@ -17,6 +18,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.image(Path(__file__).with_name("images/a.png"))
 st.title("Calculadora de Spreads de Precios Eléctricos")
 
 with st.form("spread_form"):
@@ -28,21 +30,56 @@ with st.form("spread_form"):
 
 if submitted:
     try:
-        daily_spread, monthly_spread, fig_daily, fig_monthly = compute_spreads(
+        (
+            daily_stats,
+            monthly_stats,
+            daily_country_diff,
+            monthly_country_diff,
+            fig_daily,
+            fig_monthly,
+            fig_country_diff,
+        ) = compute_spreads(
             datetime.combine(start_date, datetime.min.time()),
             datetime.combine(end_date, datetime.min.time()),
             int(horas),
         )
-        st.subheader("Spread diario")
+
+        col_img1, col_text1 = st.columns([1, 8])
+        col_img1.image(Path(__file__).with_name("images/b.png"), width=40)
+        col_text1.subheader("Spread diario")
         st.plotly_chart(fig_daily, use_container_width=True)
 
-        st.subheader("Spread mensual")
+        col_img2, col_text2 = st.columns([1, 8])
+        col_img2.image(Path(__file__).with_name("images/c.png"), width=40)
+        col_text2.subheader("Spread mensual")
         st.plotly_chart(fig_monthly, use_container_width=True)
+
+        st.subheader("Precio medio y volatilidad")
+        metrics_cols = st.columns(len(monthly_stats["geo_name"].unique()))
+        for col, geo in zip(metrics_cols, monthly_stats["geo_name"].unique()):
+            data_geo = monthly_stats[monthly_stats["geo_name"] == geo]
+            avg_price = data_geo["price_avg"].mean()
+            vol = data_geo["volatility"].mean()
+            col.metric(f"{geo} precio medio", f"{avg_price:.2f} €/MWh")
+            col.metric(f"{geo} volatilidad", f"{vol:.2f} €/MWh")
+        st.caption(
+            "Precio medio: media simple de los precios horarios filtrados por día/mes. "
+            "Volatilidad: desviación estándar de los precios horarios como indicador de riesgo."
+        )
+
+        st.subheader("Diferencia diaria de precios entre países")
+        st.plotly_chart(fig_country_diff, use_container_width=True)
 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("daily_spread.csv", daily_spread.to_csv(index=False))
-            zf.writestr("monthly_spread.csv", monthly_spread.to_csv(index=False))
+            zf.writestr("daily_stats.csv", daily_stats.to_csv(index=False))
+            zf.writestr("monthly_stats.csv", monthly_stats.to_csv(index=False))
+            zf.writestr(
+                "daily_country_diff.csv", daily_country_diff.to_csv(index=False)
+            )
+            zf.writestr(
+                "monthly_country_diff.csv", monthly_country_diff.to_csv(index=False)
+            )
         buffer.seek(0)
         st.download_button(
             "Descargar resultados",
