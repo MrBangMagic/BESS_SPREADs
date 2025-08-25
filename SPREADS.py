@@ -3,7 +3,7 @@
 Este script descarga precios horarios del mercado eléctrico español desde
 la API de ESIOS y calcula spreads diarios y mensuales para apoyar la
 operación de baterías. Antes de ejecutarlo, debe definirse la variable de
-entorno ``ESIOS_API_TOKEN`` con un token válido de la API.
+entorno ``TOKEN`` con un token válido de la API.
 """
 
 import argparse
@@ -50,11 +50,12 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
     endpoint = "indicators/"
     url = url_base + endpoint + indicador_actual
 
-    api_token = os.getenv("ESIOS_API_TOKEN")
-    if not api_token:
+    try:
+        api_token = os.environ["TOKEN"]
+    except KeyError as exc:
         raise EnvironmentError(
-            "Debe definir la variable de entorno ESIOS_API_TOKEN con un token válido"
-        )
+            "Debe definir la variable de entorno TOKEN con un token válido"
+        ) from exc
 
     headers = {"Host": "api.esios.ree.es", "x-api-key": api_token}
     params = {
@@ -169,7 +170,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
             "Calcula spreads diarios y mensuales a partir de precios horarios de ESIOS. "
-            "Requiere definir la variable de entorno ESIOS_API_TOKEN."
+            "Requiere definir la variable de entorno TOKEN."
         )
     )
     parser.add_argument(

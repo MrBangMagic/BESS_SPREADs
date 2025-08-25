@@ -30,7 +30,7 @@ with st.form("spread_form"):
 
 if submitted:
     if api_token:
-        os.environ["ESIOS_API_TOKEN"] = api_token
+        os.environ["TOKEN"] = api_token
     try:
         daily_spread, monthly_spread, fig_daily, fig_monthly = compute_spreads(
             datetime.combine(start_date, datetime.min.time()),
