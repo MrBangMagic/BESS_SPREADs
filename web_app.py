@@ -18,15 +18,15 @@ st.markdown(
     <style>
     * {font-family: 'Calibri', sans-serif;}
     .stApp {
-        background: radial-gradient(circle at center, #0f0f0f 0%, #000000 100%);
-        color: #e0ffff;
+        background: linear-gradient(135deg, #D4EDDA, #C3E6CB);
+        color: #333333;
     }
     h1, h2, h3, h4, h5, h6 {
         color: #39e5ff;
         text-shadow: 0 0 10px #39e5ff;
     }
     .stButton>button {
-        background: linear-gradient(135deg, #00ffcc, #0099ff);
+        background: linear-gradient(135deg, #8EC6C5, #A9E5D0);
         color: #000000;
         border: none;
         border-radius: 8px;
