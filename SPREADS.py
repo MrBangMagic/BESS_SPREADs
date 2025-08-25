@@ -7,14 +7,19 @@ operación de baterías.
 
 import argparse
 from datetime import datetime
-
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import plotly.express as px
 
 
-def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
+def compute_spreads(
+    start_date: datetime,
+    end_date: datetime,
+    horas: int,
+    data: Optional[pd.DataFrame] = None,
+):
     """Lee datos de precios y genera KPIs de spreads.
 
     La media de precios se calcula como media simple de los precios horarios
@@ -29,6 +34,8 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
         Fecha final del rango de análisis.
     horas : int
         Número de horas más baratas y más caras a comparar.
+    data : pandas.DataFrame, optional
+        Datos de precios ya cargados. Si es ``None`` se leerá ``input.csv``.
 
     Returns
     -------
@@ -39,8 +46,12 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
     """
 
     precio_col = "Precio mercado spot [€/MWh]"
-    data_path = Path(__file__).with_name("input.csv")
-    sheet_data = pd.read_csv(data_path, sep=";")
+
+    if data is None:
+        data_path = Path(__file__).with_name("input.csv")
+        sheet_data = pd.read_csv(data_path, sep=";")
+    else:
+        sheet_data = data.copy()
     sheet_data["datetime"] = pd.to_datetime(
         sheet_data["datetime_600"].str.replace(r"\+.*$", "", regex=True),
         errors="coerce",
