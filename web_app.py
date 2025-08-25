@@ -76,7 +76,7 @@ with st.form("spread_form"):
         min_value=1,
         max_value=24,
         value=6,
-        help="Número de horas baratas y caras a comparar (1-24)",
+        help="Horas de almacenamiento" (1-24)",
     )
     uploaded_file = st.file_uploader(
         "Archivo de precios",
