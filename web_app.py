@@ -50,11 +50,11 @@ st.write(
 st.markdown(
     "[Cómo usar la aplicación](#como-usar-la-aplicacion)", unsafe_allow_html=True
 )
-st.caption("Los datos por defecto están disponibles hasta el 25 de agosto de 2025.")
+st.caption("Datos disponibles hasta el 25 de agosto de 2025.")
 
 st.markdown("""### Cómo usar la aplicación
-1. Selecciona el rango de fechas dentro de los datos disponibles.
-2. Introduce el número de horas baratas y caras a comparar.
+1. Selecciona el rango de fechas.
+2. Introduce el número de horas de almacenamiento.
 3. Opcionalmente, sube tu propio archivo CSV de precios.
 4. Pulsa **Calcular** para generar los resultados.
 """)
