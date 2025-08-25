@@ -1,137 +1,204 @@
-import pandas as pd
-import matplotlib.pyplot as plt
+"""Herramienta para calcular spreads de precios eléctricos.
 
-#ESPAÑA PASADO
-import requests
-import pandas as pd
-from datetime import datetime, timedelta
- 
-indicador_tecnologia = {
-    "1295": "Generación T.Real FV [MWh]",
-    "550": "Generación T.Real Ciclo Combinado [MWh]",
-    "551": "Generación T.Real Eólica [MWh]",
-    "1294": "Generación T.Real CSP [MWh]",
-    "1296": "Generación T.Real Biomasa [MWh]",
-    "546": "Hidroeléctrica [MWh]",
-    "600": "Precio mercado spot [€/MWh]"
-}
- 
-# Lista de indicadores de temperatura real
-# lista_indicadores_T_real = ['1295', '550', '551', '1294', '1296', '546']
-# Indicador SPOT
-indicador_SPOT = '600'
-# Lista total de indicadores
-# lista_total_indicadores = lista_indicadores_T_real + [indicador_SPOT]
-lista_total_indicadores = indicador_SPOT
-# URL base de la API de ESIOS
-url_base = "https://api.esios.ree.es/"
-# Extremo de la API para indicadores
-endpoint = "indicators/"
- 
-# Fechas de inicio y fin
-start_date = datetime(2025, 1, 1)
-end_date = datetime(2025, 8, 25)
- 
-# Diccionario para almacenar los DataFrames de cada tecnología
-resultados_por_tecnologia = pd.DataFrame()
- 
-# Iterar sobre cada indicador
-url = url_base + endpoint + indicador_SPOT
-API_TOKEN = "64500d1f9e6a67020b341fcb883699470df2fc274597ca06308b324db345e8ad"
-headers = {'Host': 'api.esios.ree.es', 'x-api-key': API_TOKEN}
-# Lista para almacenar los DataFrames de cada día
-dfs = pd.DataFrame()
-# Iterar sobre cada día del año
-current_date = start_date
-while current_date <= end_date:
-    date_str = current_date.strftime('%Y-%m-%dT00:00')
-    date_str_end = current_date.strftime('%Y-%m-%dT23:59')
-    params = {'start_date': date_str, 'end_date': date_str_end, 'groupby': 'hour'}
-    res = requests.get(url, headers=headers, params=params)
-    data = res.json()
-    df = pd.DataFrame(data['indicator']['values'])
-    df = df[['datetime', 'geo_name','value']]
-    # Renombrar columnas para evitar conflictos
-    df = df.rename(columns={'datetime': f'datetime_{indicador_SPOT}', 
-                            'value': indicador_tecnologia[indicador_SPOT]})
-    dfs = pd.concat([dfs, df], axis = 0)
-    current_date += timedelta(days=1)
+Este script descarga precios horarios del mercado eléctrico español desde
+la API de ESIOS y calcula spreads diarios y mensuales para apoyar la
+operación de baterías. Antes de ejecutarlo, debe definirse la variable de
+entorno ``ESIOS_API_TOKEN`` con un token válido de la API.
+"""
 
-sheet_data = dfs
+import argparse
+import os
+from datetime import datetime
+from typing import Tuple
 
 import pandas as pd
 import plotly.express as px
+from plotly.graph_objs import Figure
+import requests
 
-# Convertir columna 'datetime' a formato de fecha y hora (sin ajuste UTC)
-sheet_data['datetime'] = pd.to_datetime(sheet_data['datetime_600'].str.replace(r'\+.*$', '', regex=True), errors='coerce')
 
-# Extraer año, día y hora de la columna datetime
-sheet_data['year'] = sheet_data['datetime'].dt.year
-sheet_data['day'] = sheet_data['datetime'].dt.date
-sheet_data['hour'] = sheet_data['datetime'].dt.hour
+def compute_spreads(
+    start_date: datetime, end_date: datetime, horas: int
+) -> Tuple[pd.DataFrame, pd.DataFrame, Figure, Figure]:
+    """Obtiene datos de precios y calcula spreads.
 
-horas = 6
-# Calcular precios medios por hora
-hourly_avg_prices = sheet_data.groupby(['year', 'day', 'hour', 'geo_name'])['Precio mercado spot [€/MWh]'].mean().reset_index()
+    Parameters
+    ----------
+    start_date : datetime
+        Fecha inicial del rango de análisis.
+    end_date : datetime
+        Fecha final del rango de análisis.
+    horas : int
+        Número de horas más baratas y más caras a comparar.
 
-# Identificar las horas más baratas y más caras por día
-cheapest_hours = hourly_avg_prices.groupby(['year', 'day', 'geo_name']).apply(
-    lambda x: x.nsmallest(horas, 'Precio mercado spot [€/MWh]')['Precio mercado spot [€/MWh]'].mean()
-).reset_index(name='cheapest_avg')
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame, plotly.graph_objs.Figure, plotly.graph_objs.Figure]
+        DataFrames de spread diario y mensual junto con sus gráficas.
+    """
 
-expensive_hours = hourly_avg_prices.groupby(['year', 'day', 'geo_name']).apply(
-    lambda x: x.nlargest(horas, 'Precio mercado spot [€/MWh]')['Precio mercado spot [€/MWh]'].mean()
-).reset_index(name='expensive_avg')
+    indicador_tecnologia = {
+        "1295": "Generación T.Real FV [MWh]",
+        "550": "Generación T.Real Ciclo Combinado [MWh]",
+        "551": "Generación T.Real Eólica [MWh]",
+        "1294": "Generación T.Real CSP [MWh]",
+        "1296": "Generación T.Real Biomasa [MWh]",
+        "546": "Hidroeléctrica [MWh]",
+        "600": "Precio mercado spot [€/MWh]",
+    }
 
-# Calcular el spread diario
-daily_spread = pd.merge(cheapest_hours, expensive_hours, on=['year', 'day', 'geo_name'])
-daily_spread['spread'] = daily_spread['expensive_avg'] - daily_spread['cheapest_avg']
+    # Indicador a consultar (solo se usa el spot en este script)
+    indicador_SPOT = "600"
+    indicador_actual = indicador_SPOT
 
-# Calcular spread mensual por país
-daily_spread['month'] = pd.to_datetime(daily_spread['day']).dt.to_period('M')
-monthly_spread = daily_spread.groupby(['month', 'geo_name'])['spread'].mean().reset_index()
-monthly_spread['month'] = monthly_spread['month'].astype(str)
+    url_base = "https://api.esios.ree.es/"
+    endpoint = "indicators/"
+    url = url_base + endpoint + indicador_actual
 
-# Generar una gráfica interactiva del spread diario con Plotly
-fig_daily = px.line(
-    daily_spread,
-    x='day',
-    y='spread',
-    color='geo_name',
-    title="Spread Diario para Operaciones de Batería por País",
-    labels={'day': 'Día', 'spread': 'Spread (€)', 'geo_name': 'País'},
-    markers=True
-)
+    api_token = os.getenv("ESIOS_API_TOKEN")
+    if not api_token:
+        raise EnvironmentError(
+            "Debe definir la variable de entorno ESIOS_API_TOKEN con un token válido"
+        )
 
-# Ajustar diseño de la gráfica diaria
-fig_daily.update_layout(
-    xaxis=dict(tickangle=45),
-    yaxis_title='Spread '+'de '+str(horas)+' horas (€/MWh)',
-    legend_title="País",
-    template="plotly_white"
-)
+    headers = {"Host": "api.esios.ree.es", "x-api-key": api_token}
+    params = {
+        "start_date": start_date.strftime("%Y-%m-%dT00:00"),
+        "end_date": end_date.strftime("%Y-%m-%dT23:59"),
+        "groupby": "hour",
+    }
 
-# Mostrar la gráfica interactiva del spread diario
-fig_daily.show()
+    try:
+        res = requests.get(url, headers=headers, params=params)
+        res.raise_for_status()
+    except requests.exceptions.RequestException as exc:  # pragma: no cover - network
+        print(f"Error al obtener datos de la API: {exc}")
+        return pd.DataFrame(), pd.DataFrame(), Figure(), Figure()
 
-# Generar una gráfica interactiva del spread mensual con Plotly
-fig_monthly = px.bar(
-    monthly_spread,
-    x='month',
-    y='spread',
-    color='geo_name',
-    barmode = 'group',
-    title="Spread Mensual Mercado Diario por País",
-    labels={'month': 'Mes', 'spread': 'Spread (€/MWh)', 'geo_name': 'País'},
-)
+    data = res.json()
+    sheet_data = pd.DataFrame(data["indicator"]["values"])
+    sheet_data = sheet_data[["datetime", "geo_name", "value"]]
+    precio_col = indicador_tecnologia[indicador_actual]
+    sheet_data = sheet_data.rename(
+        columns={"datetime": f"datetime_{indicador_actual}", "value": precio_col}
+    )
 
-# Ajustar diseño de la gráfica mensual
-fig_monthly.update_layout(
-    xaxis=dict(tickangle=45),
-    yaxis_title='Spread '+'de '+str(horas)+' horas (€/MWh)',
-    legend_title="País",
-    template="plotly_white"
-)
+    # Convertir la columna datetime
+    sheet_data["datetime"] = pd.to_datetime(
+        sheet_data[f"datetime_{indicador_actual}"].str.replace(r"\+.*$", "", regex=True),
+        errors="coerce",
+    )
 
-# Mostrar la gráfica interactiva del spread mensual
-fig_monthly.show()
+    # Extraer componentes temporales
+    sheet_data["year"] = sheet_data["datetime"].dt.year
+    sheet_data["day"] = sheet_data["datetime"].dt.date
+    sheet_data["hour"] = sheet_data["datetime"].dt.hour
+
+    # Calcular precios medios por hora
+    hourly_avg_prices = (
+        sheet_data.groupby(["year", "day", "hour", "geo_name"])[precio_col]
+        .mean()
+        .reset_index()
+    )
+
+    # Identificar horas más baratas y más caras
+    cheapest_hours = (
+        hourly_avg_prices.groupby(["year", "day", "geo_name"])
+        .apply(lambda x: x.nsmallest(horas, precio_col)[precio_col].mean())
+        .reset_index(name="cheapest_avg")
+    )
+
+    expensive_hours = (
+        hourly_avg_prices.groupby(["year", "day", "geo_name"])
+        .apply(lambda x: x.nlargest(horas, precio_col)[precio_col].mean())
+        .reset_index(name="expensive_avg")
+    )
+
+    # Calcular spread diario y mensual
+    daily_spread = pd.merge(
+        cheapest_hours, expensive_hours, on=["year", "day", "geo_name"]
+    )
+    daily_spread["spread"] = (
+        daily_spread["expensive_avg"] - daily_spread["cheapest_avg"]
+    )
+
+    daily_spread["month"] = pd.to_datetime(daily_spread["day"]).dt.to_period("M")
+    monthly_spread = (
+        daily_spread.groupby(["month", "geo_name"])["spread"].mean().reset_index()
+    )
+    monthly_spread["month"] = monthly_spread["month"].astype(str)
+
+    # Gráfica de spread diario
+    fig_daily = px.line(
+        daily_spread,
+        x="day",
+        y="spread",
+        color="geo_name",
+        title="Spread Diario para Operaciones de Batería por País",
+        labels={"day": "Día", "spread": "Spread (€)", "geo_name": "País"},
+        markers=True,
+        color_discrete_sequence=px.colors.sequential.Blues,
+    )
+    fig_daily.update_layout(
+        xaxis=dict(tickangle=45),
+        yaxis_title=f"Spread de {horas} horas (€/MWh)",
+        legend_title="País",
+        template="plotly_white",
+        font=dict(family="Calibri"),
+    )
+
+    # Gráfica de spread mensual
+    fig_monthly = px.bar(
+        monthly_spread,
+        x="month",
+        y="spread",
+        color="geo_name",
+        barmode="group",
+        title="Spread Mensual Mercado Diario por País",
+        labels={"month": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
+        color_discrete_sequence=px.colors.sequential.Blues,
+    )
+    fig_monthly.update_layout(
+        xaxis=dict(tickangle=45),
+        yaxis_title=f"Spread de {horas} horas (€/MWh)",
+        legend_title="País",
+        template="plotly_white",
+        font=dict(family="Calibri"),
+    )
+
+    return daily_spread, monthly_spread, fig_daily, fig_monthly
+
+
+def main(start_date: datetime, end_date: datetime, horas: int) -> None:
+    """Descarga datos de precios y muestra gráficos de spreads."""
+
+    _, _, fig_daily, fig_monthly = compute_spreads(start_date, end_date, horas)
+    fig_daily.show()
+    fig_monthly.show()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description=(
+            "Calcula spreads diarios y mensuales a partir de precios horarios de ESIOS. "
+            "Requiere definir la variable de entorno ESIOS_API_TOKEN."
+        )
+    )
+    parser.add_argument(
+        "--start-date", required=True, help="Fecha de inicio en formato YYYY-MM-DD"
+    )
+    parser.add_argument(
+        "--end-date", required=True, help="Fecha de fin en formato YYYY-MM-DD"
+    )
+    parser.add_argument(
+        "--horas",
+        type=int,
+        default=6,
+        help="Número de horas baratas y caras a comparar",
+    )
+
+    args = parser.parse_args()
+    start = datetime.fromisoformat(args.start_date)
+    end = datetime.fromisoformat(args.end_date)
+    main(start, end, args.horas)
+
