@@ -43,8 +43,8 @@ st.markdown(
 st.image(Path(__file__).parent / "images" / "logo.png", width=200)
 st.title("BESSpread")
 st.write(
-    "BESSpread es una herramienta que calcula el spread diario y mensual de precios "
-    "eléctricos y permite descargar los resultados en formato Excel."
+    "BESSpread es una herramienta que calcula el spread diario, y el spread medio mensual. "
+    "El cálculo se basa en curvas Spot de ESIOS (https://api.esios.ree.es/indicators/600). Permite descargar los resultados en formato Excel."
 )
 
 with st.form("spread_form"):
