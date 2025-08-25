@@ -1,6 +1,7 @@
 from datetime import date, datetime
 import io
 import zipfile
+import os
 
 import streamlit as st
 
@@ -20,6 +21,7 @@ st.markdown(
 st.title("Calculadora de Spreads de Precios Eléctricos")
 
 with st.form("spread_form"):
+    api_token = st.text_input("Token ESIOS API", type="password")
     col1, col2, col3 = st.columns(3)
     start_date = col1.date_input("Fecha de inicio", value=date.today())
     end_date = col2.date_input("Fecha de fin", value=date.today())
@@ -27,6 +29,8 @@ with st.form("spread_form"):
     submitted = st.form_submit_button("Calcular")
 
 if submitted:
+    if api_token:
+        os.environ["ESIOS_API_TOKEN"] = api_token
     try:
         daily_spread, monthly_spread, fig_daily, fig_monthly = compute_spreads(
             datetime.combine(start_date, datetime.min.time()),
