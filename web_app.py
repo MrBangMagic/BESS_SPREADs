@@ -43,29 +43,81 @@ st.markdown(
 st.image(Path(__file__).parent / "images" / "logo.png", width=200)
 st.title("BESSpread")
 st.write(
-    "BESSpread es una herramienta que calcula el spread diario, y el spread medio mensual. "
-    "El cálculo se basa en curvas Spot de ESIOS (https://api.esios.ree.es/indicators/600). Permite descargar los resultados en formato Excel."
+    "BESSpread es una herramienta que calcula el spread diario y el spread medio mensual. "
+    "El cálculo se basa en curvas Spot de ESIOS (https://api.esios.ree.es/indicators/600). "
+    "Permite descargar los resultados en formato Excel."
 )
+st.markdown(
+    "[Cómo usar la aplicación](#como-usar-la-aplicacion)", unsafe_allow_html=True
+)
+st.caption("Los datos por defecto están disponibles hasta el 25 de agosto de 2025.")
+
+st.markdown("""### Cómo usar la aplicación
+1. Selecciona el rango de fechas dentro de los datos disponibles.
+2. Introduce el número de horas baratas y caras a comparar.
+3. Opcionalmente, sube tu propio archivo CSV de precios.
+4. Pulsa **Calcular** para generar los resultados.
+""")
 
 with st.form("spread_form"):
     col1, col2, col3 = st.columns(3)
-    start_date = col1.date_input("Fecha de inicio", value=date.today())
-    end_date = col2.date_input("Fecha de fin", value=date.today())
-    horas = col3.number_input("Horas", min_value=1, max_value=24, value=6)
-    submitted = st.form_submit_button("Calcular")
+    start_date = col1.date_input(
+        "Fecha de inicio",
+        value=date.today(),
+        help="Fecha inicial del análisis (AAAA-MM-DD)",
+    )
+    end_date = col2.date_input(
+        "Fecha de fin",
+        value=date.today(),
+        help="Fecha final del análisis (AAAA-MM-DD)",
+    )
+    horas = col3.number_input(
+        "Horas",
+        min_value=1,
+        max_value=24,
+        value=6,
+        help="Número de horas baratas y caras a comparar (1-24)",
+    )
+    uploaded_file = st.file_uploader(
+        "Archivo de precios",
+        type="csv",
+        help="Sube un CSV con columnas de precios horarios; si no se proporciona se usa el archivo por defecto",
+    )
+
+    errors = False
+    if start_date > end_date:
+        st.error("La fecha inicial debe ser anterior o igual a la final.")
+        errors = True
+    if not (1 <= horas <= 24):
+        st.error("Las horas deben estar entre 1 y 24.")
+        errors = True
+
+    last_data_date = date(2025, 8, 25)
+    if end_date > last_data_date:
+        st.warning("El último dato disponible es del 25 de agosto de 2025.")
+
+    submitted = st.form_submit_button("Calcular", disabled=errors)
 
 if submitted:
+    data_df = None
+    if uploaded_file is not None:
+        try:
+            data_df = pd.read_csv(uploaded_file, sep=";")
+        except Exception as exc:
+            st.error(f"No se pudo leer el archivo cargado: {exc}")
     try:
-        (
-            daily_stats,
-            monthly_stats,
-            fig_daily,
-            fig_monthly,
-        ) = compute_spreads(
-            datetime.combine(start_date, datetime.min.time()),
-            datetime.combine(end_date, datetime.min.time()),
-            int(horas),
-        )
+        with st.spinner("Calculando spreads..."):
+            (
+                daily_stats,
+                monthly_stats,
+                fig_daily,
+                fig_monthly,
+            ) = compute_spreads(
+                datetime.combine(start_date, datetime.min.time()),
+                datetime.combine(end_date, datetime.min.time()),
+                int(horas),
+                data_df,
+            )
 
         col_img1, col_text1 = st.columns([1, 8])
         col_img1.image(Path(__file__).parent / "images" / "b.png", width=40)
@@ -87,7 +139,7 @@ if submitted:
             col.metric(f"{geo} volatilidad", f"{vol:.2f} €/MWh")
         st.caption(
             "Precio medio: media simple de los precios horarios filtrados por día/mes. "
-            "Volatilidad: desviación estándar de los precios horarios como indicador de riesgo."
+            "Volatilidad: desviación estándar de los precios horarios como indicador de riesgo.",
         )
 
         daily_buffer = io.BytesIO()
