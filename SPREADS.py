@@ -1,4 +1,4 @@
-"""BESS spread: cálculo de spreads de precios eléctricos.
+"""BESSpread: cálculo de spreads de precios eléctricos.
 
 Este script lee precios horarios del mercado eléctrico español desde el
 archivo ``input.csv`` y calcula spreads diarios y mensuales para apoyar la

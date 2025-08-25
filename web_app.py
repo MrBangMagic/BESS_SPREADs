@@ -7,22 +7,44 @@ import streamlit as st
 
 from SPREADS import compute_spreads
 
-st.set_page_config(page_title="BESS spread", layout="wide")
+st.set_page_config(
+    page_title="BESSpread",
+    layout="wide",
+    page_icon=str(Path(__file__).parent / "images" / "logo.png"),
+)
 
 st.markdown(
     """
     <style>
     * {font-family: 'Calibri', sans-serif;}
+    .stApp {
+        background: radial-gradient(circle at center, #0f0f0f 0%, #000000 100%);
+        color: #e0ffff;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        color: #39e5ff;
+        text-shadow: 0 0 10px #39e5ff;
+    }
+    .stButton>button {
+        background: linear-gradient(135deg, #00ffcc, #0099ff);
+        color: #000000;
+        border: none;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+    .stButton>button:hover {
+        box-shadow: 0 0 12px #00ffcc;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.image(Path(__file__).parent / "images" / "a.png")
-st.title("BESS spread")
+st.image(Path(__file__).parent / "images" / "logo.png", width=200)
+st.title("BESSpread")
 st.write(
-    "Herramienta que calcula el spread diario y mensual de precios eléctricos "
-    "y permite descargar los resultados en formato Excel."
+    "BESSpread es una herramienta que calcula el spread diario y mensual de precios "
+    "eléctricos y permite descargar los resultados en formato Excel."
 )
 
 with st.form("spread_form"):
