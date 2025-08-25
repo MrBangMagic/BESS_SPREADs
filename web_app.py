@@ -1,13 +1,13 @@
 from datetime import date, datetime
 import io
-import zipfile
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from SPREADS import compute_spreads
 
-st.set_page_config(page_title="Spreads eléctricos", layout="wide")
+st.set_page_config(page_title="BESS spread", layout="wide")
 
 st.markdown(
     """
@@ -19,7 +19,11 @@ st.markdown(
 )
 
 st.image(Path(__file__).parent / "images" / "a.png")
-st.title("Calculadora de Spreads de Precios Eléctricos")
+st.title("BESS spread")
+st.write(
+    "Herramienta que calcula el spread diario y mensual de precios eléctricos "
+    "y permite descargar los resultados en formato Excel."
+)
 
 with st.form("spread_form"):
     col1, col2, col3 = st.columns(3)
@@ -33,11 +37,8 @@ if submitted:
         (
             daily_stats,
             monthly_stats,
-            daily_country_diff,
-            monthly_country_diff,
             fig_daily,
             fig_monthly,
-            fig_country_diff,
         ) = compute_spreads(
             datetime.combine(start_date, datetime.min.time()),
             datetime.combine(end_date, datetime.min.time()),
@@ -67,25 +68,28 @@ if submitted:
             "Volatilidad: desviación estándar de los precios horarios como indicador de riesgo."
         )
 
-        st.subheader("Diferencia diaria de precios entre países")
-        st.plotly_chart(fig_country_diff, use_container_width=True)
+        daily_buffer = io.BytesIO()
+        with pd.ExcelWriter(daily_buffer, engine="openpyxl") as writer:
+            daily_stats.to_excel(writer, index=False)
+        daily_buffer.seek(0)
 
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("daily_stats.csv", daily_stats.to_csv(index=False))
-            zf.writestr("monthly_stats.csv", monthly_stats.to_csv(index=False))
-            zf.writestr(
-                "daily_country_diff.csv", daily_country_diff.to_csv(index=False)
-            )
-            zf.writestr(
-                "monthly_country_diff.csv", monthly_country_diff.to_csv(index=False)
-            )
-        buffer.seek(0)
+        monthly_buffer = io.BytesIO()
+        with pd.ExcelWriter(monthly_buffer, engine="openpyxl") as writer:
+            monthly_stats.to_excel(writer, index=False)
+        monthly_buffer.seek(0)
+
         st.download_button(
-            "Descargar resultados",
-            data=buffer,
-            file_name="spreads.zip",
-            mime="application/zip",
+            "Descargar Spread Diario",
+            data=daily_buffer,
+            file_name="spread_diario.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        st.download_button(
+            "Descargar Spread Mensual",
+            data=monthly_buffer,
+            file_name="spread_mensual.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except Exception as exc:
         st.error(f"Ocurrió un error: {exc}")
