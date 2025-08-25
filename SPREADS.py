@@ -1,4 +1,4 @@
-"""Herramienta para calcular spreads de precios eléctricos.
+"""BESS spread: cálculo de spreads de precios eléctricos.
 
 Este script lee precios horarios del mercado eléctrico español desde el
 archivo ``input.csv`` y calcula spreads diarios y mensuales para apoyar la
@@ -32,11 +32,10 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame,
-          plotly.graph_objects.Figure, plotly.graph_objects.Figure,
+    tuple[pd.DataFrame, pd.DataFrame, plotly.graph_objects.Figure,
           plotly.graph_objects.Figure]
-        DataFrames con métricas diarias y mensuales, diferencia entre países,
-        y las figuras correspondientes.
+        DataFrames con métricas diarias y mensuales y las figuras
+        correspondientes.
     """
 
     precio_col = "Precio mercado spot [€/MWh]"
@@ -123,24 +122,6 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
     )
     monthly_stats["month"] = monthly_stats["month"].astype(str)
 
-    # Diferencia diaria de precios entre países
-    daily_country_prices = daily_avg.pivot_table(
-        index=["year", "day"], columns="geo_name", values="price_avg"
-    )
-    daily_country_prices["country_diff"] = (
-        daily_country_prices.max(axis=1) - daily_country_prices.min(axis=1)
-    )
-    daily_country_diff = (
-        daily_country_prices["country_diff"].reset_index()
-    )
-    daily_country_diff["month"] = pd.to_datetime(daily_country_diff["day"]).dt.to_period(
-        "M"
-    )
-    monthly_country_diff = (
-        daily_country_diff.groupby("month")["country_diff"].mean().reset_index()
-    )
-    monthly_country_diff["month"] = monthly_country_diff["month"].astype(str)
-
     fig_daily = px.line(
         daily_stats,
         x="day",
@@ -177,45 +158,19 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
         font=dict(family="Calibri"),
     )
 
-    fig_country_diff = px.bar(
-        daily_country_diff,
-        x="day",
-        y="country_diff",
-        title="Diferencia diaria de precios entre países",
-        labels={"day": "Día", "country_diff": "Diferencia (€/MWh)"},
-        color_discrete_sequence=px.colors.sequential.Blues,
-    )
-    fig_country_diff.update_layout(
-        xaxis=dict(tickangle=45),
-        template="plotly_white",
-        font=dict(family="Calibri"),
-    )
-
     return (
         daily_stats,
         monthly_stats,
-        daily_country_diff,
-        monthly_country_diff,
         fig_daily,
         fig_monthly,
-        fig_country_diff,
     )
 
 
 def main(start_date: datetime, end_date: datetime, horas: int) -> None:
     """Función de consola para mostrar los gráficos de spreads."""
-    (
-        _,
-        _,
-        _,
-        _,
-        fig_daily,
-        fig_monthly,
-        fig_country_diff,
-    ) = compute_spreads(start_date, end_date, horas)
+    _, _, fig_daily, fig_monthly = compute_spreads(start_date, end_date, horas)
     fig_daily.show()
     fig_monthly.show()
-    fig_country_diff.show()
 
 
 if __name__ == "__main__":
