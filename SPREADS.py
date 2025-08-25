@@ -15,7 +15,11 @@ import plotly.express as px
 
 
 def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
-    """Lee datos de precios y genera gráficos de spreads.
+    """Lee datos de precios y genera KPIs de spreads.
+
+    La media de precios se calcula como media simple de los precios horarios
+    filtrados por día y mes. La volatilidad es la desviación estándar de esos
+    precios horarios, usada como indicador de riesgo.
 
     Parameters
     ----------
@@ -28,8 +32,11 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.DataFrame, plotly.graph_objects.Figure, plotly.graph_objects.Figure]
-        DataFrames con spreads diarios y mensuales y las figuras correspondientes.
+    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame,
+          plotly.graph_objects.Figure, plotly.graph_objects.Figure,
+          plotly.graph_objects.Figure]
+        DataFrames con métricas diarias y mensuales, diferencia entre países,
+        y las figuras correspondientes.
     """
 
     precio_col = "Precio mercado spot [€/MWh]"
@@ -73,14 +80,69 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
         daily_spread["expensive_avg"] - daily_spread["cheapest_avg"]
     )
 
-    daily_spread["month"] = pd.to_datetime(daily_spread["day"]).dt.to_period("M")
-    monthly_spread = (
-        daily_spread.groupby(["month", "geo_name"])["spread"].mean().reset_index()
+    # Precio medio diario por país (media simple de precios horarios)
+    daily_avg = (
+        hourly_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
+        .mean()
+        .reset_index(name="price_avg")
     )
-    monthly_spread["month"] = monthly_spread["month"].astype(str)
+
+    # Volatilidad diaria (desviación estándar de precios horarios)
+    daily_volatility = (
+        hourly_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
+        .std()
+        .reset_index(name="volatility")
+    )
+
+    # Combinar spreads, precio medio y volatilidad
+    daily_stats = pd.merge(daily_spread, daily_avg, on=["year", "day", "geo_name"])
+    daily_stats = pd.merge(
+        daily_stats, daily_volatility, on=["year", "day", "geo_name"]
+    )
+
+    daily_stats["month"] = pd.to_datetime(daily_stats["day"]).dt.to_period("M")
+
+    # Métricas mensuales
+    monthly_spread = (
+        daily_stats.groupby(["month", "geo_name"])["spread"].mean().reset_index()
+    )
+    monthly_avg = (
+        daily_stats.groupby(["month", "geo_name"])["price_avg"]
+        .mean()
+        .reset_index()
+    )
+    monthly_volatility = (
+        daily_stats.groupby(["month", "geo_name"])["volatility"]
+        .mean()
+        .reset_index()
+    )
+
+    monthly_stats = pd.merge(monthly_spread, monthly_avg, on=["month", "geo_name"])
+    monthly_stats = pd.merge(
+        monthly_stats, monthly_volatility, on=["month", "geo_name"]
+    )
+    monthly_stats["month"] = monthly_stats["month"].astype(str)
+
+    # Diferencia diaria de precios entre países
+    daily_country_prices = daily_avg.pivot_table(
+        index=["year", "day"], columns="geo_name", values="price_avg"
+    )
+    daily_country_prices["country_diff"] = (
+        daily_country_prices.max(axis=1) - daily_country_prices.min(axis=1)
+    )
+    daily_country_diff = (
+        daily_country_prices["country_diff"].reset_index()
+    )
+    daily_country_diff["month"] = pd.to_datetime(daily_country_diff["day"]).dt.to_period(
+        "M"
+    )
+    monthly_country_diff = (
+        daily_country_diff.groupby("month")["country_diff"].mean().reset_index()
+    )
+    monthly_country_diff["month"] = monthly_country_diff["month"].astype(str)
 
     fig_daily = px.line(
-        daily_spread,
+        daily_stats,
         x="day",
         y="spread",
         color="geo_name",
@@ -98,7 +160,7 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
     )
 
     fig_monthly = px.bar(
-        monthly_spread,
+        monthly_stats,
         x="month",
         y="spread",
         color="geo_name",
@@ -115,16 +177,45 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
         font=dict(family="Calibri"),
     )
 
-    return daily_spread, monthly_spread, fig_daily, fig_monthly
+    fig_country_diff = px.bar(
+        daily_country_diff,
+        x="day",
+        y="country_diff",
+        title="Diferencia diaria de precios entre países",
+        labels={"day": "Día", "country_diff": "Diferencia (€/MWh)"},
+        color_discrete_sequence=px.colors.sequential.Blues,
+    )
+    fig_country_diff.update_layout(
+        xaxis=dict(tickangle=45),
+        template="plotly_white",
+        font=dict(family="Calibri"),
+    )
+
+    return (
+        daily_stats,
+        monthly_stats,
+        daily_country_diff,
+        monthly_country_diff,
+        fig_daily,
+        fig_monthly,
+        fig_country_diff,
+    )
 
 
 def main(start_date: datetime, end_date: datetime, horas: int) -> None:
     """Función de consola para mostrar los gráficos de spreads."""
-    daily_spread, monthly_spread, fig_daily, fig_monthly = compute_spreads(
-        start_date, end_date, horas
-    )
+    (
+        _,
+        _,
+        _,
+        _,
+        fig_daily,
+        fig_monthly,
+        fig_country_diff,
+    ) = compute_spreads(start_date, end_date, horas)
     fig_daily.show()
     fig_monthly.show()
+    fig_country_diff.show()
 
 
 if __name__ == "__main__":
