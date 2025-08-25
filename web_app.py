@@ -18,7 +18,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.image(Path(__file__).with_name("images/a.png"))
+image_dir = Path(__file__).parent / "images"
+st.image(image_dir / "a.png")
 st.title("Calculadora de Spreads de Precios Eléctricos")
 
 with st.form("spread_form"):
@@ -45,12 +46,12 @@ if submitted:
         )
 
         col_img1, col_text1 = st.columns([1, 8])
-        col_img1.image(Path(__file__).with_name("images/b.png"), width=40)
+        col_img1.image(image_dir / "b.png", width=40)
         col_text1.subheader("Spread diario")
         st.plotly_chart(fig_daily, use_container_width=True)
 
         col_img2, col_text2 = st.columns([1, 8])
-        col_img2.image(Path(__file__).with_name("images/c.png"), width=40)
+        col_img2.image(image_dir / "c.png", width=40)
         col_text2.subheader("Spread mensual")
         st.plotly_chart(fig_monthly, use_container_width=True)
 
