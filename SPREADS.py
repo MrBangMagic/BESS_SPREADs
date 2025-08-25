@@ -1,22 +1,21 @@
 """Herramienta para calcular spreads de precios eléctricos.
 
-Este script descarga precios horarios del mercado eléctrico español desde
-la API de ESIOS y calcula spreads diarios y mensuales para apoyar la
-operación de baterías. Antes de ejecutarlo, debe definirse la variable de
-entorno ``TOKEN`` con un token válido de la API.
+Este script lee precios horarios del mercado eléctrico español desde el
+archivo ``input.csv`` y calcula spreads diarios y mensuales para apoyar la
+operación de baterías.
 """
 
 import argparse
-import os
 from datetime import datetime
+
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import requests
 
 
 def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
-    """Descarga datos de precios y genera gráficos de spreads.
+    """Lee datos de precios y genera gráficos de spreads.
 
     Parameters
     ----------
@@ -33,55 +32,17 @@ def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
         DataFrames con spreads diarios y mensuales y las figuras correspondientes.
     """
 
-    indicador_tecnologia = {
-        "1295": "Generación T.Real FV [MWh]",
-        "550": "Generación T.Real Ciclo Combinado [MWh]",
-        "551": "Generación T.Real Eólica [MWh]",
-        "1294": "Generación T.Real CSP [MWh]",
-        "1296": "Generación T.Real Biomasa [MWh]",
-        "546": "Hidroeléctrica [MWh]",
-        "600": "Precio mercado spot [€/MWh]",
-    }
-
-    indicador_SPOT = "600"
-    indicador_actual = indicador_SPOT
-
-    url_base = "https://api.esios.ree.es/"
-    endpoint = "indicators/"
-    url = url_base + endpoint + indicador_actual
-
-    try:
-        api_token = os.environ["TOKEN"]
-    except KeyError as exc:
-        raise EnvironmentError(
-            "Debe definir la variable de entorno TOKEN con un token válido"
-        ) from exc
-
-    headers = {"Host": "api.esios.ree.es", "x-api-key": api_token}
-    params = {
-        "start_date": start_date.strftime("%Y-%m-%dT00:00"),
-        "end_date": end_date.strftime("%Y-%m-%dT23:59"),
-        "groupby": "hour",
-    }
-
-    try:
-        res = requests.get(url, headers=headers, params=params)
-        res.raise_for_status()
-    except requests.exceptions.RequestException as exc:  # pragma: no cover - network
-        raise RuntimeError(f"Error al obtener datos de la API: {exc}") from exc
-
-    data = res.json()
-    sheet_data = pd.DataFrame(data["indicator"]["values"])
-    sheet_data = sheet_data[["datetime", "geo_name", "value"]]
-    precio_col = indicador_tecnologia[indicador_actual]
-    sheet_data = sheet_data.rename(
-        columns={"datetime": f"datetime_{indicador_actual}", "value": precio_col}
-    )
-
+    precio_col = "Precio mercado spot [€/MWh]"
+    data_path = Path(__file__).with_name("input.csv")
+    sheet_data = pd.read_csv(data_path, sep=";")
     sheet_data["datetime"] = pd.to_datetime(
-        sheet_data[f"datetime_{indicador_actual}"].str.replace(r"\+.*$", "", regex=True),
+        sheet_data["datetime_600"].str.replace(r"\+.*$", "", regex=True),
         errors="coerce",
     )
+    mask = (sheet_data["datetime"] >= start_date) & (
+        sheet_data["datetime"] < end_date + pd.Timedelta(days=1)
+    )
+    sheet_data = sheet_data.loc[mask, ["datetime", "geo_name", precio_col]]
 
     sheet_data["year"] = sheet_data["datetime"].dt.year
     sheet_data["day"] = sheet_data["datetime"].dt.date
@@ -168,10 +129,7 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description=(
-            "Calcula spreads diarios y mensuales a partir de precios horarios de ESIOS. "
-            "Requiere definir la variable de entorno TOKEN."
-        )
+        description="Calcula spreads diarios y mensuales a partir de precios horarios del archivo input.csv."
     )
     parser.add_argument(
         "--start-date", required=True, help="Fecha de inicio en formato YYYY-MM-DD"
