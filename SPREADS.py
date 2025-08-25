@@ -15,7 +15,7 @@ import plotly.express as px
 import requests
 
 
-def main(start_date: datetime, end_date: datetime, horas: int) -> None:
+def compute_spreads(start_date: datetime, end_date: datetime, horas: int):
     """Descarga datos de precios y genera gráficos de spreads.
 
     Parameters
@@ -26,6 +26,11 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         Fecha final del rango de análisis.
     horas : int
         Número de horas más baratas y más caras a comparar.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame, plotly.graph_objects.Figure, plotly.graph_objects.Figure]
+        DataFrames con spreads diarios y mensuales y las figuras correspondientes.
     """
 
     indicador_tecnologia = {
@@ -38,7 +43,6 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         "600": "Precio mercado spot [€/MWh]",
     }
 
-    # Indicador a consultar (solo se usa el spot en este script)
     indicador_SPOT = "600"
     indicador_actual = indicador_SPOT
 
@@ -63,8 +67,7 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         res = requests.get(url, headers=headers, params=params)
         res.raise_for_status()
     except requests.exceptions.RequestException as exc:  # pragma: no cover - network
-        print(f"Error al obtener datos de la API: {exc}")
-        return
+        raise RuntimeError(f"Error al obtener datos de la API: {exc}") from exc
 
     data = res.json()
     sheet_data = pd.DataFrame(data["indicator"]["values"])
@@ -74,25 +77,21 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         columns={"datetime": f"datetime_{indicador_actual}", "value": precio_col}
     )
 
-    # Convertir la columna datetime
     sheet_data["datetime"] = pd.to_datetime(
         sheet_data[f"datetime_{indicador_actual}"].str.replace(r"\+.*$", "", regex=True),
         errors="coerce",
     )
 
-    # Extraer componentes temporales
     sheet_data["year"] = sheet_data["datetime"].dt.year
     sheet_data["day"] = sheet_data["datetime"].dt.date
     sheet_data["hour"] = sheet_data["datetime"].dt.hour
 
-    # Calcular precios medios por hora
     hourly_avg_prices = (
         sheet_data.groupby(["year", "day", "hour", "geo_name"])[precio_col]
         .mean()
         .reset_index()
     )
 
-    # Identificar horas más baratas y más caras
     cheapest_hours = (
         hourly_avg_prices.groupby(["year", "day", "geo_name"])
         .apply(lambda x: x.nsmallest(horas, precio_col)[precio_col].mean())
@@ -105,7 +104,6 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         .reset_index(name="expensive_avg")
     )
 
-    # Calcular spread diario y mensual
     daily_spread = pd.merge(
         cheapest_hours, expensive_hours, on=["year", "day", "geo_name"]
     )
@@ -119,7 +117,6 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
     )
     monthly_spread["month"] = monthly_spread["month"].astype(str)
 
-    # Gráfica de spread diario
     fig_daily = px.line(
         daily_spread,
         x="day",
@@ -128,16 +125,16 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         title="Spread Diario para Operaciones de Batería por País",
         labels={"day": "Día", "spread": "Spread (€)", "geo_name": "País"},
         markers=True,
+        color_discrete_sequence=px.colors.sequential.Blues,
     )
     fig_daily.update_layout(
         xaxis=dict(tickangle=45),
         yaxis_title=f"Spread de {horas} horas (€/MWh)",
         legend_title="País",
         template="plotly_white",
+        font=dict(family="Calibri"),
     )
-    fig_daily.show()
 
-    # Gráfica de spread mensual
     fig_monthly = px.bar(
         monthly_spread,
         x="month",
@@ -146,13 +143,25 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
         barmode="group",
         title="Spread Mensual Mercado Diario por País",
         labels={"month": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
+        color_discrete_sequence=px.colors.sequential.Blues,
     )
     fig_monthly.update_layout(
         xaxis=dict(tickangle=45),
         yaxis_title=f"Spread de {horas} horas (€/MWh)",
         legend_title="País",
         template="plotly_white",
+        font=dict(family="Calibri"),
     )
+
+    return daily_spread, monthly_spread, fig_daily, fig_monthly
+
+
+def main(start_date: datetime, end_date: datetime, horas: int) -> None:
+    """Función de consola para mostrar los gráficos de spreads."""
+    daily_spread, monthly_spread, fig_daily, fig_monthly = compute_spreads(
+        start_date, end_date, horas
+    )
+    fig_daily.show()
     fig_monthly.show()
 
 
@@ -180,4 +189,3 @@ if __name__ == "__main__":
     start = datetime.fromisoformat(args.start_date)
     end = datetime.fromisoformat(args.end_date)
     main(start, end, args.horas)
-
