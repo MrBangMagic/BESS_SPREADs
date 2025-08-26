@@ -131,6 +131,24 @@ def compute_spreads(
     monthly_stats = pd.merge(
         monthly_stats, monthly_volatility, on=["month", "geo_name"]
     )
+    month_ts = pd.PeriodIndex(monthly_stats["month"]).to_timestamp()
+    spanish_months = {
+        1: "enero",
+        2: "febrero",
+        3: "marzo",
+        4: "abril",
+        5: "mayo",
+        6: "junio",
+        7: "julio",
+        8: "agosto",
+        9: "septiembre",
+        10: "octubre",
+        11: "noviembre",
+        12: "diciembre",
+    }
+    month_names = month_ts.month.map(spanish_months)
+    monthly_stats["month_name"] = month_names.str.capitalize() + " " + month_ts.year.astype(str)
+    monthly_stats = monthly_stats.sort_values("month")
     monthly_stats["month"] = monthly_stats["month"].astype(str)
 
     fig_daily = px.line(
@@ -153,20 +171,25 @@ def compute_spreads(
 
     fig_monthly = px.bar(
         monthly_stats,
-        x="month",
+        x="month_name",
         y="spread",
-        color="geo_name",
+        color="spread",
+        text="spread",
+        pattern_shape="geo_name",
         barmode="group",
+        color_continuous_scale=["#c6dbef", "#6baed6", "#2171b5", "#08306b"],
         title="Spread Mensual Mercado Diario por País",
-        labels={"month": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
-        color_discrete_sequence=px.colors.sequential.Blues,
+        labels={"month_name": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
     )
+    fig_monthly.update_traces(texttemplate="%{text:.0f}", textposition="outside")
     fig_monthly.update_layout(
-        xaxis=dict(tickangle=45),
+        xaxis=dict(tickangle=0),
         yaxis_title=f"Spread de {horas} horas (€/MWh)",
         legend_title="País",
         template="plotly_white",
         font=dict(family="Calibri"),
+        xaxis_tickfont_size=12,
+        coloraxis_showscale=False,
     )
 
     return (
