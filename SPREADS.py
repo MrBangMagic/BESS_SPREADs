@@ -169,19 +169,19 @@ def compute_spreads(
         font=dict(family="Calibri"),
     )
 
+    country_colors = px.colors.qualitative.Plotly
     fig_monthly = px.bar(
         monthly_stats,
         x="month_name",
         y="spread",
-        color="spread",
-        text="spread",
-        pattern_shape="geo_name",
+        color="geo_name",
+        text="geo_name",
         barmode="group",
-        color_continuous_scale=["#c6dbef", "#6baed6", "#2171b5", "#08306b"],
+        color_discrete_sequence=country_colors,
         title="Spread Mensual Mercado Diario por País",
         labels={"month_name": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
     )
-    fig_monthly.update_traces(texttemplate="%{text:.0f}", textposition="outside")
+    fig_monthly.update_traces(textposition="outside")
     fig_monthly.update_layout(
         xaxis=dict(tickangle=0),
         yaxis_title=f"Spread de {horas} horas (€/MWh)",
@@ -189,7 +189,6 @@ def compute_spreads(
         template="plotly_white",
         font=dict(family="Calibri"),
         xaxis_tickfont_size=12,
-        coloraxis_showscale=False,
     )
 
     return (
