@@ -43,10 +43,11 @@ def fetch_esios_data(
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
 
+    # Usar hora local española (sin Z al final) para evitar desfase horario
     url = (
         f"https://api.esios.ree.es/indicators/{indicator}"
-        f"?start_date={start_date_str}T00%3A00%3A00Z"
-        f"&end_date={end_date_str}T23%3A59%3A59Z"
+        f"?start_date={start_date_str}T00%3A00%3A00"
+        f"&end_date={end_date_str}T23%3A59%3A59"
         f"&time_trunc=hour"
     )
 
