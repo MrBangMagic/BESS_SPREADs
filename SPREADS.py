@@ -19,6 +19,7 @@ import json
 def fetch_esios_data(
     start_date: datetime,
     end_date: datetime,
+    time_trunc: str = "hour",
     api_key: str = "3d85e18f83f86de7a7865e959a812e9ed9423828abed12113c954d0888bece70",
 ) -> pd.DataFrame:
     """Obtiene datos de precios desde la API de ESIOS.
@@ -29,6 +30,9 @@ def fetch_esios_data(
         Fecha inicial del rango de datos a obtener.
     end_date : datetime
         Fecha final del rango de datos a obtener.
+    time_trunc : str, optional
+        Intervalo de agregación: "hour" para horario, "fifteen_minutes" para 15 minutos.
+        Por defecto "hour".
     api_key : str, optional
         Token de API de ESIOS. Por defecto usa un token preconfigurado.
 
@@ -48,7 +52,7 @@ def fetch_esios_data(
         f"https://api.esios.ree.es/indicators/{indicator}"
         f"?start_date={start_date_str}T00%3A00%3A00"
         f"&end_date={end_date_str}T23%3A59%3A59"
-        f"&time_trunc=hour"
+        f"&time_trunc={time_trunc}"
     )
 
     headers = {
@@ -91,12 +95,13 @@ def compute_spreads(
     end_date: datetime,
     horas: int,
     data: Optional[pd.DataFrame] = None,
+    intervalo: str = "Horario",
 ):
     """Obtiene datos de precios desde la API de ESIOS y genera KPIs de spreads.
 
-    La media de precios se calcula como media simple de los precios horarios
+    La media de precios se calcula como media simple de los precios
     filtrados por día y mes. La volatilidad es la desviación estándar de esos
-    precios horarios, usada como indicador de riesgo.
+    precios, usada como indicador de riesgo.
 
     Parameters
     ----------
@@ -108,6 +113,8 @@ def compute_spreads(
         Número de horas más baratas y más caras a comparar.
     data : pandas.DataFrame, optional
         Datos de precios ya cargados. Si es ``None`` se obtendrán desde la API de ESIOS.
+    intervalo : str, optional
+        Tipo de intervalo: "Horario" o "15 minutos". Por defecto "Horario".
 
     Returns
     -------
@@ -152,43 +159,60 @@ def compute_spreads(
 
     sheet_data["year"] = sheet_data["datetime"].dt.year
     sheet_data["day"] = sheet_data["datetime"].dt.date
-    sheet_data["hour"] = sheet_data["datetime"].dt.hour
 
-    hourly_avg_prices = (
-        sheet_data.groupby(["year", "day", "hour", "geo_name"])[precio_col]
+    # Crear columna de intervalo según el tipo seleccionado
+    if intervalo == "15 minutos":
+        # Para 15 minutos, crear un identificador único por cada intervalo del día
+        sheet_data["interval"] = (
+            sheet_data["datetime"].dt.hour * 4 + sheet_data["datetime"].dt.minute // 15
+        )
+        group_cols = ["year", "day", "interval", "geo_name"]
+    else:
+        # Para horario, usar la hora como identificador
+        sheet_data["interval"] = sheet_data["datetime"].dt.hour
+        group_cols = ["year", "day", "interval", "geo_name"]
+
+    # Calcular precios promedio por intervalo
+    interval_avg_prices = (
+        sheet_data.groupby(group_cols)[precio_col]
         .mean()
         .reset_index()
     )
 
-    cheapest_hours = (
-        hourly_avg_prices.groupby(["year", "day", "geo_name"])
-        .apply(lambda x: x.nsmallest(horas, precio_col)[precio_col].mean())
+    # Calcular número de intervalos a comparar (ajustado según el intervalo)
+    # Para horario: horas directamente
+    # Para 15 minutos: horas * 4 (4 intervalos de 15 min por hora)
+    num_intervals = horas if intervalo == "Horario" else horas * 4
+
+    cheapest_intervals = (
+        interval_avg_prices.groupby(["year", "day", "geo_name"])
+        .apply(lambda x: x.nsmallest(num_intervals, precio_col)[precio_col].mean())
         .reset_index(name="cheapest_avg")
     )
 
-    expensive_hours = (
-        hourly_avg_prices.groupby(["year", "day", "geo_name"])
-        .apply(lambda x: x.nlargest(horas, precio_col)[precio_col].mean())
+    expensive_intervals = (
+        interval_avg_prices.groupby(["year", "day", "geo_name"])
+        .apply(lambda x: x.nlargest(num_intervals, precio_col)[precio_col].mean())
         .reset_index(name="expensive_avg")
     )
 
     daily_spread = pd.merge(
-        cheapest_hours, expensive_hours, on=["year", "day", "geo_name"]
+        cheapest_intervals, expensive_intervals, on=["year", "day", "geo_name"]
     )
     daily_spread["spread"] = (
         daily_spread["expensive_avg"] - daily_spread["cheapest_avg"]
     )
 
-    # Precio medio diario por país (media simple de precios horarios)
+    # Precio medio diario por país (media simple de precios por intervalo)
     daily_avg = (
-        hourly_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
+        interval_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
         .mean()
         .reset_index(name="price_avg")
     )
 
-    # Volatilidad diaria (desviación estándar de precios horarios)
+    # Volatilidad diaria (desviación estándar de precios por intervalo)
     daily_volatility = (
-        hourly_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
+        interval_avg_prices.groupby(["year", "day", "geo_name"])[precio_col]
         .std()
         .reset_index(name="volatility")
     )
@@ -240,19 +264,22 @@ def compute_spreads(
     monthly_stats = monthly_stats.sort_values("month")
     monthly_stats["month"] = monthly_stats["month"].astype(str)
 
+    # Determinar etiqueta según intervalo
+    interval_label = "15 minutos" if intervalo == "15 minutos" else "horario"
+
     fig_daily = px.line(
         daily_stats,
         x="day",
         y="spread",
         color="geo_name",
-        title="Spread Diario para Operaciones de Batería por País",
+        title=f"Spread Diario para Operaciones de Batería por País (Análisis {interval_label})",
         labels={"day": "Día", "spread": "Spread (€)", "geo_name": "País"},
         markers=True,
         color_discrete_sequence=px.colors.sequential.Blues,
     )
     fig_daily.update_layout(
         xaxis=dict(tickangle=45),
-        yaxis_title=f"Spread de {horas} horas (€/MWh)",
+        yaxis_title=f"Spread de {horas} horas - análisis {interval_label} (€/MWh)",
         legend_title="País",
         template="plotly_white",
         font=dict(family="Calibri"),
@@ -267,13 +294,13 @@ def compute_spreads(
         text="geo_name",
         barmode="group",
         color_discrete_sequence=country_colors,
-        title="Spread Mensual Mercado Diario por País",
+        title=f"Spread Mensual Mercado Diario por País (Análisis {interval_label})",
         labels={"month_name": "Mes", "spread": "Spread (€/MWh)", "geo_name": "País"},
     )
     fig_monthly.update_traces(textposition="outside")
     fig_monthly.update_layout(
         xaxis=dict(tickangle=0),
-        yaxis_title=f"Spread de {horas} horas (€/MWh)",
+        yaxis_title=f"Spread de {horas} horas - análisis {interval_label} (€/MWh)",
         legend_title="País",
         template="plotly_white",
         font=dict(family="Calibri"),
