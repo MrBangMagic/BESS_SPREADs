@@ -43,10 +43,11 @@ def fetch_esios_data(
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
 
+    # Usar hora local española (sin Z al final) para evitar desfase horario
     url = (
         f"https://api.esios.ree.es/indicators/{indicator}"
-        f"?start_date={start_date_str}T00%3A00%3A00Z"
-        f"&end_date={end_date_str}T23%3A59%3A59Z"
+        f"?start_date={start_date_str}T00%3A00%3A00"
+        f"&end_date={end_date_str}T23%3A59%3A59"
         f"&time_trunc=hour"
     )
 
@@ -126,14 +127,20 @@ def compute_spreads(
 
     # Convertir datetime_600 a datetime, manejando tanto strings como timestamps
     if sheet_data["datetime_600"].dtype == "object":
-        # Si es string, eliminar la zona horaria
+        # Si es string, convertir manteniendo la zona horaria y luego localizar a Europe/Madrid
         sheet_data["datetime"] = pd.to_datetime(
-            sheet_data["datetime_600"].str.replace(r"\+.*$", "", regex=True),
+            sheet_data["datetime_600"],
             errors="coerce",
         )
+        # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
+        if sheet_data["datetime"].dt.tz is not None:
+            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
     else:
         # Si ya es datetime, usarlo directamente
         sheet_data["datetime"] = pd.to_datetime(sheet_data["datetime_600"], errors="coerce")
+        # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
+        if sheet_data["datetime"].dt.tz is not None:
+            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
 
     # Asegurar que el precio sea numérico
     sheet_data[precio_col] = pd.to_numeric(sheet_data[precio_col], errors="coerce")
