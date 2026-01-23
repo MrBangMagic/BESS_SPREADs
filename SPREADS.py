@@ -226,8 +226,10 @@ def compute_spreads(
     precio_col = "Precio mercado spot [€/MWh]"
 
     if data is None:
-        # Obtener datos desde la API de ESIOS
-        sheet_data = fetch_esios_data(start_date, end_date)
+        # Determinar el time_trunc según el intervalo seleccionado
+        time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else "hour"
+        # Obtener datos desde la API de ESIOS con el intervalo correcto
+        sheet_data = fetch_esios_data(start_date, end_date, time_trunc=time_trunc)
     else:
         sheet_data = data.copy()
 
