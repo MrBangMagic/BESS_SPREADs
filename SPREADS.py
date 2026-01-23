@@ -232,21 +232,22 @@ def compute_spreads(
         sheet_data = data.copy()
 
     # Convertir datetime_600 a datetime, manejando tanto strings como timestamps
-    if sheet_data["datetime_600"].dtype == "object":
-        # Si es string, convertir manteniendo la zona horaria y luego localizar a Europe/Madrid
-        sheet_data["datetime"] = pd.to_datetime(
-            sheet_data["datetime_600"],
-            errors="coerce",
-        )
+    sheet_data["datetime"] = pd.to_datetime(
+        sheet_data["datetime_600"],
+        errors="coerce",
+    )
+
+    # Verificar que la conversión fue exitosa antes de acceder a .dt
+    if pd.api.types.is_datetime64_any_dtype(sheet_data["datetime"]):
         # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
-        if sheet_data["datetime"].dt.tz is not None:
-            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        try:
+            if sheet_data["datetime"].dt.tz is not None:
+                sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        except (AttributeError, TypeError):
+            # Si hay algún error al acceder a la zona horaria, continuar sin conversión
+            pass
     else:
-        # Si ya es datetime, usarlo directamente
-        sheet_data["datetime"] = pd.to_datetime(sheet_data["datetime_600"], errors="coerce")
-        # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
-        if sheet_data["datetime"].dt.tz is not None:
-            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        raise ValueError("No se pudo convertir la columna datetime_600 a tipo datetime")
 
     # Asegurar que el precio sea numérico
     sheet_data[precio_col] = pd.to_numeric(sheet_data[precio_col], errors="coerce")
