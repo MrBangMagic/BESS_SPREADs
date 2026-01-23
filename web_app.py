@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from SPREADS import compute_spreads
+from SPREADS import compute_spreads, fetch_esios_data
 
 st.set_page_config(
     page_title="BESSpread",
@@ -90,16 +90,22 @@ with st.form("spread_form"):
 if submitted:
     try:
         with st.spinner("Obteniendo datos de la API de ESIOS y calculando spreads..."):
+            # Obtener datos horarios desde la API
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.min.time())
+            hourly_data = fetch_esios_data(start_datetime, end_datetime)
+
+            # Calcular spreads con los datos obtenidos
             (
                 daily_stats,
                 monthly_stats,
                 fig_daily,
                 fig_monthly,
             ) = compute_spreads(
-                datetime.combine(start_date, datetime.min.time()),
-                datetime.combine(end_date, datetime.min.time()),
+                start_datetime,
+                end_datetime,
                 int(horas),
-                None,  # None para obtener datos desde la API
+                hourly_data,  # Pasar los datos ya obtenidos
             )
 
         col_img1, col_text1 = st.columns([1, 8])
@@ -135,18 +141,36 @@ if submitted:
             monthly_stats.to_excel(writer, index=False)
         monthly_buffer.seek(0)
 
-        st.download_button(
-            "Descargar Spread Diario",
-            data=daily_buffer,
-            file_name="spread_diario.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        # Crear buffer para datos horarios
+        hourly_buffer = io.BytesIO()
+        with pd.ExcelWriter(hourly_buffer, engine="openpyxl") as writer:
+            hourly_data.to_excel(writer, index=False)
+        hourly_buffer.seek(0)
 
-        st.download_button(
-            "Descargar Spread Mensual",
-            data=monthly_buffer,
-            file_name="spread_mensual.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+        with col_btn1:
+            st.download_button(
+                "Descargar Datos Horarios",
+                data=hourly_buffer,
+                file_name="datos_horarios.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+        with col_btn2:
+            st.download_button(
+                "Descargar Spread Diario",
+                data=daily_buffer,
+                file_name="spread_diario.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+        with col_btn3:
+            st.download_button(
+                "Descargar Spread Mensual",
+                data=monthly_buffer,
+                file_name="spread_mensual.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
     except Exception as exc:
         st.error(f"Ocurrió un error: {exc}")
