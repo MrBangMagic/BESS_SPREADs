@@ -101,8 +101,8 @@ if submitted:
             start_datetime = datetime.combine(start_date, datetime.min.time())
             end_datetime = datetime.combine(end_date, datetime.min.time())
 
-            # Convertir opción a parámetro de API
-            time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else "hour"
+            # Usar "fifteen_minutes" solo para 15 minutos, None para horario (evitar "hour" que genera problemas)
+            time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else None
             data = fetch_esios_data(start_datetime, end_datetime, time_trunc=time_trunc)
 
             # Calcular spreads con los datos obtenidos

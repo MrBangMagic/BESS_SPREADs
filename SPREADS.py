@@ -19,7 +19,7 @@ import json
 def fetch_esios_data(
     start_date: datetime,
     end_date: datetime,
-    time_trunc: str = "hour",
+    time_trunc: Optional[str] = None,
     api_key: str = "3d85e18f83f86de7a7865e959a812e9ed9423828abed12113c954d0888bece70",
 ) -> pd.DataFrame:
     """Obtiene datos de precios desde la API de ESIOS.
@@ -31,8 +31,8 @@ def fetch_esios_data(
     end_date : datetime
         Fecha final del rango de datos a obtener.
     time_trunc : str, optional
-        Intervalo de agregación: "hour" para horario, "fifteen_minutes" para 15 minutos.
-        Por defecto "hour".
+        Intervalo de agregación. Usar "fifteen_minutes" para datos de 15 minutos.
+        Si es None, la API devolverá datos en su formato nativo (horario).
     api_key : str, optional
         Token de API de ESIOS. Por defecto usa un token preconfigurado.
 
@@ -82,8 +82,11 @@ def fetch_esios_data(
         f"https://api.esios.ree.es/indicators/{indicator}"
         f"?start_date={start_date_str}T00%3A00%3A00"
         f"&end_date={end_date_str}T23%3A59%3A59"
-        f"&time_trunc={time_trunc}"
     )
+
+    # Solo agregar time_trunc si se especifica (evitar usar "hour" que genera problemas)
+    if time_trunc is not None:
+        url += f"&time_trunc={time_trunc}"
 
     headers = {
         "Accept": "application/json; application/vnd.esios-api-v1+json",
@@ -122,7 +125,7 @@ def fetch_esios_data(
 
 def _fetch_single_day_esios(
     date: datetime,
-    time_trunc: str,
+    time_trunc: Optional[str],
     api_key: str,
     indicator: str = "600",
 ) -> Optional[pd.DataFrame]:
@@ -134,8 +137,9 @@ def _fetch_single_day_esios(
     ----------
     date : datetime
         Fecha del día a obtener.
-    time_trunc : str
-        Intervalo de agregación: "hour" o "fifteen_minutes".
+    time_trunc : str, optional
+        Intervalo de agregación. Usar "fifteen_minutes" para datos de 15 minutos.
+        Si es None, la API devolverá datos en su formato nativo (horario).
     api_key : str
         Token de API de ESIOS.
     indicator : str, optional
@@ -152,8 +156,11 @@ def _fetch_single_day_esios(
         f"https://api.esios.ree.es/indicators/{indicator}"
         f"?start_date={date_str}T00%3A00%3A00"
         f"&end_date={date_str}T23%3A59%3A59"
-        f"&time_trunc={time_trunc}"
     )
+
+    # Solo agregar time_trunc si se especifica (evitar usar "hour" que genera problemas)
+    if time_trunc is not None:
+        url += f"&time_trunc={time_trunc}"
 
     headers = {
         "Accept": "application/json; application/vnd.esios-api-v1+json",
@@ -226,27 +233,31 @@ def compute_spreads(
     precio_col = "Precio mercado spot [€/MWh]"
 
     if data is None:
+        # Determinar time_trunc: usar "fifteen_minutes" solo si se solicita intervalo de 15 minutos
+        # No usar "hour" porque genera problemas - dejar None para datos horarios nativos
+        time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else None
         # Obtener datos desde la API de ESIOS
-        sheet_data = fetch_esios_data(start_date, end_date)
+        sheet_data = fetch_esios_data(start_date, end_date, time_trunc=time_trunc)
     else:
         sheet_data = data.copy()
 
     # Convertir datetime_600 a datetime, manejando tanto strings como timestamps
-    if sheet_data["datetime_600"].dtype == "object":
-        # Si es string, convertir manteniendo la zona horaria y luego localizar a Europe/Madrid
-        sheet_data["datetime"] = pd.to_datetime(
-            sheet_data["datetime_600"],
-            errors="coerce",
-        )
+    sheet_data["datetime"] = pd.to_datetime(
+        sheet_data["datetime_600"],
+        errors="coerce",
+    )
+
+    # Verificar que la conversión fue exitosa antes de acceder a .dt
+    if pd.api.types.is_datetime64_any_dtype(sheet_data["datetime"]):
         # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
-        if sheet_data["datetime"].dt.tz is not None:
-            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        try:
+            if sheet_data["datetime"].dt.tz is not None:
+                sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        except (AttributeError, TypeError):
+            # Si hay algún error al acceder a la zona horaria, continuar sin conversión
+            pass
     else:
-        # Si ya es datetime, usarlo directamente
-        sheet_data["datetime"] = pd.to_datetime(sheet_data["datetime_600"], errors="coerce")
-        # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
-        if sheet_data["datetime"].dt.tz is not None:
-            sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
+        raise ValueError("No se pudo convertir la columna datetime_600 a tipo datetime")
 
     # Asegurar que el precio sea numérico
     sheet_data[precio_col] = pd.to_numeric(sheet_data[precio_col], errors="coerce")
