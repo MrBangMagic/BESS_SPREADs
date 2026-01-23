@@ -6,7 +6,7 @@ operación de baterías.
 """
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -43,6 +43,36 @@ def fetch_esios_data(
     """
     indicator = "600"
 
+    # Calcular la diferencia en días
+    date_diff = (end_date - start_date).days
+
+    # Si el rango es mayor a 7 días, dividir en peticiones diarias para evitar timeout
+    if date_diff > 7:
+        all_data = []
+        current_date = start_date
+
+        while current_date <= end_date:
+            # Hacer petición para un solo día
+            day_data = _fetch_single_day_esios(
+                current_date,
+                time_trunc,
+                api_key,
+                indicator
+            )
+            if day_data is not None and not day_data.empty:
+                all_data.append(day_data)
+
+            # Avanzar al siguiente día
+            current_date += timedelta(days=1)
+
+        if not all_data:
+            raise Exception("La API no devolvió datos para el rango de fechas solicitado")
+
+        # Combinar todos los DataFrames
+        df = pd.concat(all_data, ignore_index=True)
+        return df
+
+    # Para rangos pequeños (≤7 días), usar la petición original
     # Formatear fechas para la API
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
@@ -88,6 +118,75 @@ def fetch_esios_data(
     df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
 
     return df
+
+
+def _fetch_single_day_esios(
+    date: datetime,
+    time_trunc: str,
+    api_key: str,
+    indicator: str = "600",
+) -> Optional[pd.DataFrame]:
+    """Obtiene datos de un solo día desde la API de ESIOS.
+
+    Esta función auxiliar se usa para peticiones grandes que se dividen por día.
+
+    Parameters
+    ----------
+    date : datetime
+        Fecha del día a obtener.
+    time_trunc : str
+        Intervalo de agregación: "hour" o "fifteen_minutes".
+    api_key : str
+        Token de API de ESIOS.
+    indicator : str, optional
+        Indicador de ESIOS. Por defecto "600".
+
+    Returns
+    -------
+    Optional[pd.DataFrame]
+        DataFrame con los datos del día, o None si hay error.
+    """
+    date_str = date.strftime("%Y-%m-%d")
+
+    url = (
+        f"https://api.esios.ree.es/indicators/{indicator}"
+        f"?start_date={date_str}T00%3A00%3A00"
+        f"&end_date={date_str}T23%3A59%3A59"
+        f"&time_trunc={time_trunc}"
+    )
+
+    headers = {
+        "Accept": "application/json; application/vnd.esios-api-v1+json",
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=(5, 120))
+        response.raise_for_status()
+
+        r_object = json.loads(response.text)
+        indicator_values = r_object["indicator"]["values"]
+
+        if not indicator_values:
+            return None
+
+        df = pd.DataFrame(indicator_values)
+
+        # Verificar columnas
+        required_cols = ["datetime", "geo_name", "value"]
+        if not all(col in df.columns for col in required_cols):
+            return None
+
+        df = df[["datetime", "geo_name", "value"]]
+        df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
+
+        return df
+
+    except Exception as e:
+        # En caso de error en un día específico, registrar y continuar
+        print(f"Advertencia: Error al obtener datos para {date_str}: {e}")
+        return None
 
 
 def compute_spreads(
