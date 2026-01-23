@@ -19,7 +19,6 @@ import json
 def fetch_esios_data(
     start_date: datetime,
     end_date: datetime,
-    time_trunc: str = "hour",
     api_key: str = "3d85e18f83f86de7a7865e959a812e9ed9423828abed12113c954d0888bece70",
 ) -> pd.DataFrame:
     """Obtiene datos de precios desde la API de ESIOS.
@@ -30,9 +29,6 @@ def fetch_esios_data(
         Fecha inicial del rango de datos a obtener.
     end_date : datetime
         Fecha final del rango de datos a obtener.
-    time_trunc : str, optional
-        Intervalo de agregación: "hour" para horario, "fifteen_minutes" para 15 minutos.
-        Por defecto "hour".
     api_key : str, optional
         Token de API de ESIOS. Por defecto usa un token preconfigurado.
 
@@ -55,7 +51,6 @@ def fetch_esios_data(
             # Hacer petición para un solo día
             day_data = _fetch_single_day_esios(
                 current_date,
-                time_trunc,
                 api_key,
                 indicator
             )
@@ -82,7 +77,6 @@ def fetch_esios_data(
         f"https://api.esios.ree.es/indicators/{indicator}"
         f"?start_date={start_date_str}T00%3A00%3A00"
         f"&end_date={end_date_str}T23%3A59%3A59"
-        f"&time_trunc={time_trunc}"
     )
 
     headers = {
@@ -122,7 +116,6 @@ def fetch_esios_data(
 
 def _fetch_single_day_esios(
     date: datetime,
-    time_trunc: str,
     api_key: str,
     indicator: str = "600",
 ) -> Optional[pd.DataFrame]:
@@ -134,8 +127,6 @@ def _fetch_single_day_esios(
     ----------
     date : datetime
         Fecha del día a obtener.
-    time_trunc : str
-        Intervalo de agregación: "hour" o "fifteen_minutes".
     api_key : str
         Token de API de ESIOS.
     indicator : str, optional
@@ -152,7 +143,6 @@ def _fetch_single_day_esios(
         f"https://api.esios.ree.es/indicators/{indicator}"
         f"?start_date={date_str}T00%3A00%3A00"
         f"&end_date={date_str}T23%3A59%3A59"
-        f"&time_trunc={time_trunc}"
     )
 
     headers = {
@@ -226,10 +216,8 @@ def compute_spreads(
     precio_col = "Precio mercado spot [€/MWh]"
 
     if data is None:
-        # Determinar el time_trunc según el intervalo seleccionado
-        time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else "hour"
-        # Obtener datos desde la API de ESIOS con el intervalo correcto
-        sheet_data = fetch_esios_data(start_date, end_date, time_trunc=time_trunc)
+        # Obtener datos desde la API de ESIOS
+        sheet_data = fetch_esios_data(start_date, end_date)
     else:
         sheet_data = data.copy()
 

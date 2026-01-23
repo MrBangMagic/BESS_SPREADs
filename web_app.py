@@ -97,13 +97,11 @@ with st.form("spread_form"):
 if submitted:
     try:
         with st.spinner("Obteniendo datos de la API de ESIOS y calculando spreads..."):
-            # Obtener datos desde la API con el intervalo seleccionado
+            # Obtener datos desde la API
             start_datetime = datetime.combine(start_date, datetime.min.time())
             end_datetime = datetime.combine(end_date, datetime.min.time())
 
-            # Convertir opción a parámetro de API
-            time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else "hour"
-            data = fetch_esios_data(start_datetime, end_datetime, time_trunc=time_trunc)
+            data = fetch_esios_data(start_datetime, end_datetime)
 
             # Calcular spreads con los datos obtenidos
             (
