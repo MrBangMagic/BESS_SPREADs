@@ -53,12 +53,13 @@ st.markdown(
 
 st.markdown("""### Cómo usar la aplicación
 1. Selecciona el rango de fechas que deseas analizar.
-2. Introduce el número de horas de almacenamiento.
-3. Pulsa **Calcular** para obtener los datos de la API y generar los resultados.
+2. Selecciona el intervalo de análisis (15 minutos u horario).
+3. Introduce el número de horas de almacenamiento.
+4. Pulsa **Calcular** para obtener los datos de la API y generar los resultados.
 """)
 
 with st.form("spread_form"):
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     start_date = col1.date_input(
         "Fecha de inicio",
         value=date.today(),
@@ -69,7 +70,13 @@ with st.form("spread_form"):
         value=date.today(),
         help="Fecha final del análisis (AAAA-MM-DD)",
     )
-    horas = col3.number_input(
+    intervalo = col3.selectbox(
+        "Intervalo",
+        options=["Horario", "15 minutos"],
+        index=0,
+        help="Selecciona el intervalo de análisis",
+    )
+    horas = col4.number_input(
         "Horas",
         min_value=1,
         max_value=24,
@@ -90,10 +97,13 @@ with st.form("spread_form"):
 if submitted:
     try:
         with st.spinner("Obteniendo datos de la API de ESIOS y calculando spreads..."):
-            # Obtener datos horarios desde la API
+            # Obtener datos desde la API con el intervalo seleccionado
             start_datetime = datetime.combine(start_date, datetime.min.time())
             end_datetime = datetime.combine(end_date, datetime.min.time())
-            hourly_data = fetch_esios_data(start_datetime, end_datetime)
+
+            # Convertir opción a parámetro de API
+            time_trunc = "fifteen_minutes" if intervalo == "15 minutos" else "hour"
+            data = fetch_esios_data(start_datetime, end_datetime, time_trunc=time_trunc)
 
             # Calcular spreads con los datos obtenidos
             (
@@ -105,7 +115,8 @@ if submitted:
                 start_datetime,
                 end_datetime,
                 int(horas),
-                hourly_data,  # Pasar los datos ya obtenidos
+                data,  # Pasar los datos ya obtenidos
+                intervalo=intervalo,  # Pasar el intervalo seleccionado
             )
 
         col_img1, col_text1 = st.columns([1, 8])
@@ -141,19 +152,23 @@ if submitted:
             monthly_stats.to_excel(writer, index=False)
         monthly_buffer.seek(0)
 
-        # Crear buffer para datos horarios
-        hourly_buffer = io.BytesIO()
-        with pd.ExcelWriter(hourly_buffer, engine="openpyxl") as writer:
-            hourly_data.to_excel(writer, index=False)
-        hourly_buffer.seek(0)
+        # Crear buffer para datos de entrada (horarios o 15 minutos)
+        data_buffer = io.BytesIO()
+        with pd.ExcelWriter(data_buffer, engine="openpyxl") as writer:
+            data.to_excel(writer, index=False)
+        data_buffer.seek(0)
+
+        # Nombre de archivo según intervalo
+        data_filename = "datos_15min.xlsx" if intervalo == "15 minutos" else "datos_horarios.xlsx"
+        btn_label = f"Descargar Datos {intervalo}"
 
         col_btn1, col_btn2, col_btn3 = st.columns(3)
 
         with col_btn1:
             st.download_button(
-                "Descargar Datos Horarios",
-                data=hourly_buffer,
-                file_name="datos_horarios.xlsx",
+                btn_label,
+                data=data_buffer,
+                file_name=data_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
