@@ -120,6 +120,12 @@ def fetch_esios_data(
     df = df[["datetime", "geo_name", "value"]]
     df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
 
+    # Filtrar filas con datetime_600 nulo o vacío
+    df = df[df["datetime_600"].notna() & (df["datetime_600"] != "")]
+
+    if df.empty:
+        raise Exception("La API no devolvió datos válidos (todos los valores de datetime estaban vacíos)")
+
     return df
 
 
@@ -188,7 +194,10 @@ def _fetch_single_day_esios(
         df = df[["datetime", "geo_name", "value"]]
         df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
 
-        return df
+        # Filtrar filas con datetime_600 nulo o vacío
+        df = df[df["datetime_600"].notna() & (df["datetime_600"] != "")]
+
+        return df if not df.empty else None
 
     except Exception as e:
         # En caso de error en un día específico, registrar y continuar
@@ -241,23 +250,61 @@ def compute_spreads(
     else:
         sheet_data = data.copy()
 
-    # Convertir datetime_600 a datetime, manejando tanto strings como timestamps
+    # Convertir datetime_600 a datetime de manera robusta
+    # Primero verificar que la columna existe
+    if "datetime_600" not in sheet_data.columns:
+        raise ValueError("La columna datetime_600 no existe en los datos")
+
+    # Eliminar filas donde datetime_600 es nulo antes de procesar
+    initial_count = len(sheet_data)
+    sheet_data = sheet_data[sheet_data["datetime_600"].notna()].copy()
+    removed_count = initial_count - len(sheet_data)
+
+    if sheet_data.empty:
+        raise ValueError("No hay datos válidos para procesar (todas las filas tenían datetime_600 nulo)")
+
+    # Convertir explícitamente a string para manejar tipos mixtos
+    # que pueden resultar de pd.concat() de múltiples DataFrames
+    sheet_data["datetime_600"] = sheet_data["datetime_600"].astype(str)
+
+    # Filtrar valores que al convertirse a string son problemáticos
+    problematic_strings = ['None', 'nan', 'NaN', 'NaT', '', 'null']
+    mask_valid = ~sheet_data["datetime_600"].isin(problematic_strings)
+    sheet_data = sheet_data[mask_valid].copy()
+
+    if sheet_data.empty:
+        raise ValueError("No hay datos válidos para procesar después de filtrar valores nulos")
+
+    # Convertir a datetime usando utc=True para manejar mejor los timezones
     sheet_data["datetime"] = pd.to_datetime(
         sheet_data["datetime_600"],
+        utc=True,
         errors="coerce",
     )
 
-    # Verificar que la conversión fue exitosa antes de acceder a .dt
-    if pd.api.types.is_datetime64_any_dtype(sheet_data["datetime"]):
-        # Si tiene zona horaria, convertir a Europe/Madrid y luego remover tz info
-        try:
-            if sheet_data["datetime"].dt.tz is not None:
-                sheet_data["datetime"] = sheet_data["datetime"].dt.tz_convert('Europe/Madrid').dt.tz_localize(None)
-        except (AttributeError, TypeError):
-            # Si hay algún error al acceder a la zona horaria, continuar sin conversión
-            pass
-    else:
-        raise ValueError("No se pudo convertir la columna datetime_600 a tipo datetime")
+    # Verificar que la conversión fue exitosa
+    if not pd.api.types.is_datetime64_any_dtype(sheet_data["datetime"]):
+        raise ValueError(
+            "No se pudo convertir la columna datetime_600 a tipo datetime. "
+            f"Tipo de datos recibido: {sheet_data['datetime_600'].dtype}"
+        )
+
+    # Verificar si hay valores que no se pudieron convertir (NaT)
+    nat_count = sheet_data["datetime"].isna().sum()
+    if nat_count > 0:
+        # Mostrar algunos ejemplos de valores problemáticos
+        problematic_values = sheet_data[sheet_data["datetime"].isna()]["datetime_600"].unique()[:5]
+        raise ValueError(
+            f"Se encontraron {nat_count} valores que no se pudieron convertir a datetime. "
+            f"Ejemplos: {problematic_values.tolist()}"
+        )
+
+    # Convertir de UTC a Europe/Madrid y luego remover timezone info
+    sheet_data["datetime"] = (
+        sheet_data["datetime"]
+        .dt.tz_convert('Europe/Madrid')
+        .dt.tz_localize(None)
+    )
 
     # Asegurar que el precio sea numérico
     sheet_data[precio_col] = pd.to_numeric(sheet_data[precio_col], errors="coerce")
