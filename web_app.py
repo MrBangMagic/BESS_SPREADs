@@ -44,19 +44,17 @@ st.image(Path(__file__).parent / "images" / "logo.png", width=200)
 st.title("BESSpread")
 st.write(
     "BESSpread es una herramienta que calcula el spread diario y el spread medio mensual. "
-    "El cálculo se basa en curvas Spot de ESIOS (https://api.esios.ree.es/indicators/600). "
+    "Los datos se obtienen en tiempo real desde la API de ESIOS (https://api.esios.ree.es/indicators/600). "
     "Permite descargar los resultados en formato Excel."
 )
 st.markdown(
     "[Cómo usar la aplicación](#como-usar-la-aplicacion)", unsafe_allow_html=True
 )
-st.caption("Datos disponibles hasta el 25 de agosto de 2025.")
 
 st.markdown("""### Cómo usar la aplicación
-1. Selecciona el rango de fechas.
+1. Selecciona el rango de fechas que deseas analizar.
 2. Introduce el número de horas de almacenamiento.
-3. Opcionalmente, sube tu propio archivo CSV de precios.
-4. Pulsa **Calcular** para generar los resultados.
+3. Pulsa **Calcular** para obtener los datos de la API y generar los resultados.
 """)
 
 with st.form("spread_form"):
@@ -78,11 +76,6 @@ with st.form("spread_form"):
         value=6,
         help="Horas de almacenamiento (1-24)",
     )
-    uploaded_file = st.file_uploader(
-        "Archivo de precios",
-        type="csv",
-        help="Sube un CSV con columnas de precios horarios; si no se proporciona se usa el archivo por defecto",
-    )
 
     errors = False
     if start_date > end_date:
@@ -92,21 +85,11 @@ with st.form("spread_form"):
         st.error("Las horas deben estar entre 1 y 24.")
         errors = True
 
-    last_data_date = date(2025, 8, 25)
-    if end_date > last_data_date:
-        st.warning("El último dato disponible es del 25 de agosto de 2025.")
-
     submitted = st.form_submit_button("Calcular", disabled=errors)
 
 if submitted:
-    data_df = None
-    if uploaded_file is not None:
-        try:
-            data_df = pd.read_csv(uploaded_file, sep=";")
-        except Exception as exc:
-            st.error(f"No se pudo leer el archivo cargado: {exc}")
     try:
-        with st.spinner("Calculando spreads..."):
+        with st.spinner("Obteniendo datos de la API de ESIOS y calculando spreads..."):
             (
                 daily_stats,
                 monthly_stats,
@@ -116,7 +99,7 @@ if submitted:
                 datetime.combine(start_date, datetime.min.time()),
                 datetime.combine(end_date, datetime.min.time()),
                 int(horas),
-                data_df,
+                None,  # None para obtener datos desde la API
             )
 
         col_img1, col_text1 = st.columns([1, 8])

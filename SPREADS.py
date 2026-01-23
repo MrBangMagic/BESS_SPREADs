@@ -1,7 +1,7 @@
 """BESSpread: cálculo de spreads de precios eléctricos.
 
-Este script lee precios horarios del mercado eléctrico español desde el
-archivo ``input.csv`` y calcula spreads diarios y mensuales para apoyar la
+Este script lee precios horarios del mercado eléctrico español desde la
+API de ESIOS y calcula spreads diarios y mensuales para apoyar la
 operación de baterías.
 """
 
@@ -12,6 +12,61 @@ from typing import Optional
 
 import pandas as pd
 import plotly.express as px
+import requests
+import json
+
+
+def fetch_esios_data(
+    start_date: datetime,
+    end_date: datetime,
+    api_key: str = "3d85e18f83f86de7a7865e959a812e9ed9423828abed12113c954d0888bece70",
+) -> pd.DataFrame:
+    """Obtiene datos de precios desde la API de ESIOS.
+
+    Parameters
+    ----------
+    start_date : datetime
+        Fecha inicial del rango de datos a obtener.
+    end_date : datetime
+        Fecha final del rango de datos a obtener.
+    api_key : str, optional
+        Token de API de ESIOS. Por defecto usa un token preconfigurado.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame con columnas: datetime_600, geo_name, Precio mercado spot [€/MWh]
+    """
+    indicator = "600"
+
+    # Formatear fechas para la API
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
+
+    url = (
+        f"https://api.esios.ree.es/indicators/{indicator}"
+        f"?start_date={start_date_str}T00%3A00%3A00Z"
+        f"&end_date={end_date_str}T23%3A59%3A59Z"
+        f"&time_trunc=hour"
+    )
+
+    headers = {
+        "Accept": "application/json; application/vnd.esios-api-v1+json",
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+    }
+
+    response = requests.get(url, headers=headers, timeout=(5, 120))
+    response.raise_for_status()
+
+    r_object = json.loads(response.text)
+    indicator_values = r_object["indicator"]["values"]
+
+    df = pd.DataFrame(indicator_values)
+    df = df[["datetime", "geo_name", "value"]]
+    df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
+
+    return df
 
 
 def compute_spreads(
@@ -20,7 +75,7 @@ def compute_spreads(
     horas: int,
     data: Optional[pd.DataFrame] = None,
 ):
-    """Lee datos de precios y genera KPIs de spreads.
+    """Obtiene datos de precios desde la API de ESIOS y genera KPIs de spreads.
 
     La media de precios se calcula como media simple de los precios horarios
     filtrados por día y mes. La volatilidad es la desviación estándar de esos
@@ -35,7 +90,7 @@ def compute_spreads(
     horas : int
         Número de horas más baratas y más caras a comparar.
     data : pandas.DataFrame, optional
-        Datos de precios ya cargados. Si es ``None`` se leerá ``input.csv``.
+        Datos de precios ya cargados. Si es ``None`` se obtendrán desde la API de ESIOS.
 
     Returns
     -------
@@ -48,8 +103,8 @@ def compute_spreads(
     precio_col = "Precio mercado spot [€/MWh]"
 
     if data is None:
-        data_path = Path(__file__).with_name("input.csv")
-        sheet_data = pd.read_csv(data_path, sep=";")
+        # Obtener datos desde la API de ESIOS
+        sheet_data = fetch_esios_data(start_date, end_date)
     else:
         sheet_data = data.copy()
     sheet_data["datetime"] = pd.to_datetime(
@@ -208,7 +263,7 @@ def main(start_date: datetime, end_date: datetime, horas: int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Calcula spreads diarios y mensuales a partir de precios horarios del archivo input.csv."
+        description="Calcula spreads diarios y mensuales a partir de precios horarios obtenidos desde la API de ESIOS."
     )
     parser.add_argument(
         "--start-date", required=True, help="Fecha de inicio en formato YYYY-MM-DD"
