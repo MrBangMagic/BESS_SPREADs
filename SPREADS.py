@@ -56,13 +56,29 @@ def fetch_esios_data(
         "x-api-key": api_key,
     }
 
-    response = requests.get(url, headers=headers, timeout=(5, 120))
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers=headers, timeout=(5, 120))
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Error al conectar con la API de ESIOS: {e}")
 
-    r_object = json.loads(response.text)
-    indicator_values = r_object["indicator"]["values"]
+    try:
+        r_object = json.loads(response.text)
+        indicator_values = r_object["indicator"]["values"]
+    except (json.JSONDecodeError, KeyError) as e:
+        raise Exception(f"Error al procesar la respuesta de la API: {e}")
+
+    if not indicator_values:
+        raise Exception("La API no devolvió datos para el rango de fechas solicitado")
 
     df = pd.DataFrame(indicator_values)
+
+    # Verificar que las columnas necesarias existan
+    required_cols = ["datetime", "geo_name", "value"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise Exception(f"La respuesta de la API no contiene las columnas esperadas: {missing_cols}")
+
     df = df[["datetime", "geo_name", "value"]]
     df.columns = ["datetime_600", "geo_name", "Precio mercado spot [€/MWh]"]
 
@@ -107,10 +123,21 @@ def compute_spreads(
         sheet_data = fetch_esios_data(start_date, end_date)
     else:
         sheet_data = data.copy()
-    sheet_data["datetime"] = pd.to_datetime(
-        sheet_data["datetime_600"].str.replace(r"\+.*$", "", regex=True),
-        errors="coerce",
-    )
+
+    # Convertir datetime_600 a datetime, manejando tanto strings como timestamps
+    if sheet_data["datetime_600"].dtype == "object":
+        # Si es string, eliminar la zona horaria
+        sheet_data["datetime"] = pd.to_datetime(
+            sheet_data["datetime_600"].str.replace(r"\+.*$", "", regex=True),
+            errors="coerce",
+        )
+    else:
+        # Si ya es datetime, usarlo directamente
+        sheet_data["datetime"] = pd.to_datetime(sheet_data["datetime_600"], errors="coerce")
+
+    # Asegurar que el precio sea numérico
+    sheet_data[precio_col] = pd.to_numeric(sheet_data[precio_col], errors="coerce")
+
     mask = (sheet_data["datetime"] >= start_date) & (
         sheet_data["datetime"] < end_date + pd.Timedelta(days=1)
     )
