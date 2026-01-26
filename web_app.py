@@ -6,6 +6,13 @@ import pandas as pd
 import streamlit as st
 
 from SPREADS import compute_spreads, fetch_esios_data
+from lcoe import (
+    BESSParameters,
+    calculate_lcoe,
+    create_lcoe_breakdown_chart,
+    create_profitability_chart,
+    create_cashflow_chart,
+)
 
 st.set_page_config(
     page_title="BESSpread",
@@ -187,5 +194,298 @@ if submitted:
                 file_name="spread_mensual.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
+        # Calcular spread medio de España para LCOE
+        spain_data = monthly_stats[monthly_stats["geo_name"] == "España"]
+        if not spain_data.empty:
+            avg_spread_spain = spain_data["spread"].mean()
+        else:
+            avg_spread_spain = monthly_stats["spread"].mean()
+
+        # Guardar datos en session_state para LCOE
+        st.session_state["avg_spread"] = avg_spread_spain
+        st.session_state["spread_calculated"] = True
+
     except Exception as exc:
         st.error(f"Ocurrió un error: {exc}")
+
+# Sección LCOE
+st.markdown("---")
+st.header("Análisis LCOE (Coste Nivelado de Energía)")
+st.write(
+    "El LCOE permite evaluar si el sistema BESS es rentable comparando el coste "
+    "de almacenamiento con los ingresos potenciales por arbitraje (spreads)."
+)
+
+with st.expander("ℹ️ ¿Qué es el LCOE?", expanded=False):
+    st.markdown("""
+    **LCOE (Levelized Cost of Energy)** es el coste medio por MWh de energía
+    descargada durante toda la vida útil del sistema.
+
+    **Fórmula:**
+    ```
+    LCOE = (CAPEX + NPV(OPEX)) / NPV(Energía descargada)
+    ```
+
+    **Interpretación:**
+    - Si LCOE < Spread medio → El proyecto es **rentable**
+    - Si LCOE > Spread medio → El proyecto **no es rentable**
+
+    **Componentes del coste:**
+    - **CAPEX Potencia**: Inversores, electrónica de potencia (€/kW)
+    - **CAPEX Energía**: Celdas de batería (€/kWh)
+    - **OPEX Fijo**: Mantenimiento, seguros, personal (€/kW/año)
+    - **OPEX Variable**: Costes por energía descargada (€/MWh)
+    """)
+
+with st.form("lcoe_form"):
+    st.subheader("Parámetros del Sistema BESS")
+
+    col_sys1, col_sys2 = st.columns(2)
+    power_mw = col_sys1.number_input(
+        "Potencia (MW)",
+        min_value=0.1,
+        max_value=1000.0,
+        value=10.0,
+        step=1.0,
+        help="Capacidad de potencia del sistema en MW",
+    )
+    energy_mwh = col_sys2.number_input(
+        "Energía (MWh)",
+        min_value=0.1,
+        max_value=10000.0,
+        value=40.0,
+        step=1.0,
+        help="Capacidad de energía del sistema en MWh",
+    )
+
+    st.subheader("Costes de Inversión (CAPEX)")
+    col_capex1, col_capex2 = st.columns(2)
+    capex_power = col_capex1.number_input(
+        "CAPEX Potencia (€/kW)",
+        min_value=0.0,
+        max_value=1000.0,
+        value=150.0,
+        step=10.0,
+        help="Coste de inversores y electrónica de potencia",
+    )
+    capex_energy = col_capex2.number_input(
+        "CAPEX Energía (€/kWh)",
+        min_value=0.0,
+        max_value=1000.0,
+        value=250.0,
+        step=10.0,
+        help="Coste de las celdas de batería",
+    )
+
+    st.subheader("Costes Operativos (OPEX)")
+    col_opex1, col_opex2 = st.columns(2)
+    opex_fixed = col_opex1.number_input(
+        "OPEX Fijo (€/kW/año)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        step=1.0,
+        help="Mantenimiento, seguros, personal",
+    )
+    opex_variable = col_opex2.number_input(
+        "OPEX Variable (€/MWh)",
+        min_value=0.0,
+        max_value=50.0,
+        value=2.0,
+        step=0.5,
+        help="Costes proporcionales a la energía descargada",
+    )
+
+    st.subheader("Parámetros Técnicos")
+    col_tech1, col_tech2, col_tech3 = st.columns(3)
+    efficiency = col_tech1.number_input(
+        "Eficiencia Round-Trip (%)",
+        min_value=50.0,
+        max_value=100.0,
+        value=88.0,
+        step=1.0,
+        help="Eficiencia de carga y descarga combinada",
+    )
+    degradation = col_tech2.number_input(
+        "Degradación Anual (%)",
+        min_value=0.0,
+        max_value=10.0,
+        value=2.0,
+        step=0.1,
+        help="Pérdida de capacidad por año",
+    )
+    cycles_day = col_tech3.number_input(
+        "Ciclos por Día",
+        min_value=0.1,
+        max_value=5.0,
+        value=1.0,
+        step=0.1,
+        help="Número de ciclos completos de carga/descarga por día",
+    )
+
+    st.subheader("Parámetros Financieros")
+    col_fin1, col_fin2, col_fin3 = st.columns(3)
+    lifetime = col_fin1.number_input(
+        "Vida Útil (años)",
+        min_value=1,
+        max_value=30,
+        value=15,
+        step=1,
+        help="Duración del proyecto",
+    )
+    discount_rate = col_fin2.number_input(
+        "Tasa de Descuento (%)",
+        min_value=0.0,
+        max_value=20.0,
+        value=7.0,
+        step=0.5,
+        help="Tasa de descuento anual (WACC)",
+    )
+    availability = col_fin3.number_input(
+        "Disponibilidad (%)",
+        min_value=50.0,
+        max_value=100.0,
+        value=95.0,
+        step=1.0,
+        help="Porcentaje de tiempo operativo",
+    )
+
+    # Spread manual o calculado
+    st.subheader("Spread para Análisis de Rentabilidad")
+    use_calculated_spread = st.checkbox(
+        "Usar spread calculado del análisis anterior",
+        value=st.session_state.get("spread_calculated", False),
+        help="Si está marcado, usa el spread medio calculado anteriormente",
+    )
+
+    if use_calculated_spread and st.session_state.get("spread_calculated"):
+        spread_value = st.session_state.get("avg_spread", 20.0)
+        st.info(f"Spread medio calculado: {spread_value:.2f} €/MWh")
+    else:
+        spread_value = st.number_input(
+            "Spread Medio (€/MWh)",
+            min_value=0.0,
+            max_value=200.0,
+            value=20.0,
+            step=1.0,
+            help="Diferencia media entre precio de venta y compra",
+        )
+
+    lcoe_submitted = st.form_submit_button("Calcular LCOE")
+
+if lcoe_submitted:
+    # Crear parámetros BESS
+    bess_params = BESSParameters(
+        power_capacity_mw=power_mw,
+        energy_capacity_mwh=energy_mwh,
+        capex_power=capex_power,
+        capex_energy=capex_energy,
+        opex_fixed=opex_fixed,
+        opex_variable=opex_variable,
+        efficiency=efficiency / 100,
+        degradation_rate=degradation / 100,
+        lifetime_years=lifetime,
+        discount_rate=discount_rate / 100,
+        cycles_per_day=cycles_day,
+        availability=availability / 100,
+    )
+
+    # Calcular LCOE
+    lcoe_result = calculate_lcoe(bess_params, spread_value)
+
+    # Mostrar resultados principales
+    st.subheader("Resultados del LCOE")
+
+    col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+    col_res1.metric(
+        "LCOE",
+        f"{lcoe_result.lcoe:.2f} €/MWh",
+        delta=None,
+    )
+    col_res2.metric(
+        "Spread Medio",
+        f"{spread_value:.2f} €/MWh",
+    )
+
+    margin = spread_value - lcoe_result.lcoe
+    margin_color = "normal" if margin >= 0 else "inverse"
+    col_res3.metric(
+        "Margen",
+        f"{margin:.2f} €/MWh",
+        delta=f"{'Rentable' if margin > 0 else 'No rentable'}",
+        delta_color=margin_color,
+    )
+
+    if lcoe_result.payback_years is not None and lcoe_result.payback_years > 0:
+        payback_str = f"{lcoe_result.payback_years:.1f} años"
+    else:
+        payback_str = "N/A"
+    col_res4.metric("Payback", payback_str)
+
+    # Métricas detalladas
+    st.subheader("Desglose de Costes e Ingresos")
+    col_det1, col_det2, col_det3 = st.columns(3)
+
+    col_det1.metric(
+        "CAPEX Total",
+        f"{lcoe_result.total_capex:,.0f} €".replace(",", "."),
+    )
+    col_det2.metric(
+        "NPV OPEX",
+        f"{lcoe_result.npv_opex:,.0f} €".replace(",", "."),
+    )
+    col_det3.metric(
+        "Coste Total Ciclo de Vida",
+        f"{lcoe_result.total_cost:,.0f} €".replace(",", "."),
+    )
+
+    col_det4, col_det5, col_det6 = st.columns(3)
+    col_det4.metric(
+        "Energía Anual (Año 1)",
+        f"{lcoe_result.annual_energy_mwh:,.0f} MWh".replace(",", "."),
+    )
+    col_det5.metric(
+        "Energía Total Vida Útil",
+        f"{lcoe_result.total_energy_mwh:,.0f} MWh".replace(",", "."),
+    )
+    col_det6.metric(
+        "NPV Beneficio",
+        f"{lcoe_result.npv_profit:,.0f} €".replace(",", "."),
+        delta="Positivo" if lcoe_result.npv_profit > 0 else "Negativo",
+        delta_color="normal" if lcoe_result.npv_profit > 0 else "inverse",
+    )
+
+    # Gráficos
+    st.subheader("Visualización")
+
+    tab1, tab2, tab3 = st.tabs(
+        ["Desglose LCOE", "LCOE vs Spread", "Flujo de Caja"]
+    )
+
+    with tab1:
+        fig_breakdown = create_lcoe_breakdown_chart(lcoe_result)
+        st.plotly_chart(fig_breakdown, use_container_width=True)
+
+    with tab2:
+        fig_profit = create_profitability_chart(lcoe_result, spread_value)
+        st.plotly_chart(fig_profit, use_container_width=True)
+
+    with tab3:
+        fig_cashflow = create_cashflow_chart(bess_params, spread_value)
+        st.plotly_chart(fig_cashflow, use_container_width=True)
+
+    # Resumen de rentabilidad
+    st.subheader("Conclusión")
+    if margin > 0:
+        st.success(
+            f"✅ **El proyecto es RENTABLE**. El margen de {margin:.2f} €/MWh "
+            f"genera un NPV de {lcoe_result.npv_profit:,.0f} € durante "
+            f"{lifetime} años.".replace(",", ".")
+        )
+    else:
+        st.error(
+            f"❌ **El proyecto NO es rentable** con los parámetros actuales. "
+            f"El LCOE ({lcoe_result.lcoe:.2f} €/MWh) supera el spread medio "
+            f"({spread_value:.2f} €/MWh)."
+        )
